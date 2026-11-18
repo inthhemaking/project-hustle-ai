@@ -1,0 +1,28 @@
+Project HUSTLE AI — Prototype v0.1
+A small NBA + NFL player-prop research dashboard built with Streamlit.
+Included
+	●	CSV import for historical player game logs and prop lines
+	●	Recent 5/10/20 game averages, medians and descriptive hit rates
+	●	Optional comparison to American-odds break-even probability
+	●	SQLite prediction log and manual settlement
+	●	CSV templates available inside the app
+Run locally
+Requires Python 3.10+.
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# macOS/Linux:
+source .venv/bin/activate
+
+pip install -r requirements.txt
+streamlit run app.py
+Data format
+game_logs_template.csv
+date,league,player,team,opponent,metric,value
+One row per player, game and metric. Use NBA or NFL. Examples: points, rebounds, assists, passing_yards, rushing_yards, receptions.
+prop_slate_template.csv
+game_date,league,player,team,opponent,metric,line,side,odds_american
+Use Over or Under for side. American odds are optional.
+Important limitations
+This is a data-driven prototype, not a live betting product. It does not fetch live data, injuries, lineups or sportsbook odds. Historical hit rates are descriptive statistics, not calibrated forecasts. It has no trained predictive model yet. Test with historical data before relying on it, and do not treat outputs as guaranteed outcomes.
+The SQLite database (hustle_ai.db) is created locally when the app runs. Back it up if you deploy or move the app.

@@ -1,0 +1,40 @@
+Deploy Project HUSTLE AI (private prototype)
+Files to upload to GitHub
+Upload these files to the root of one GitHub repository:
+	●	app.py
+	●	requirements.txt
+	●	README.md
+	●	game_logs_template.csv
+	●	prop_slate_template.csv
+	●	.gitignore
+Do not upload hustle_ai.db, API keys, passwords, or personal betting/account data.
+1. Create a private GitHub repository
+	1.	Sign in to https://github.com on your computer.
+	2.	Select New repository.
+	3.	Name it project-hustle-ai.
+	4.	Set visibility to Private.
+	5.	Create the repository.
+	6.	Choose Add file → Upload files.
+	7.	Upload the six files listed above and commit them to the main branch.
+2. Deploy on Streamlit Community Cloud
+	1.	Open https://share.streamlit.io and sign in with GitHub.
+	2.	Connect/authorize your GitHub account if prompted.
+	3.	Select Create app → I have an app.
+	4.	Choose repository project-hustle-ai, branch main, and main file path app.py.
+	5.	In Advanced settings, select Python 3.12 if asked.
+	6.	Deploy the app and wait for the build to finish.
+	7.	In the app’s settings → Sharing, confirm Only specific people can view this app. A private repository should make the app private by default; verify the setting.
+Official instructions:
+	●	https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/deploy
+	●	https://docs.streamlit.io/deploy/streamlit-community-cloud/share-your-app
+3. Open it on iPhone
+	1.	Copy the app’s https://...streamlit.app URL after deployment.
+	2.	Open it in Safari on your iPhone.
+	3.	Tap the Share icon.
+	4.	Choose Add to Home Screen.
+Important prototype limitations
+	●	This is a CSV-driven prototype; it does not yet fetch live NBA/NFL data, injuries, lineups, or sportsbook odds.
+	●	It does not yet have user accounts or subscription billing.
+	●	SQLite is used for the prediction log. Files written to a Streamlit Community Cloud app’s local filesystem should not be treated as durable storage. Do not rely on saved predictions surviving restarts/redeployments. Before regular use or inviting other users, replace SQLite with a managed persistent database (for example, a properly secured hosted Postgres/Supabase project).
+	●	Keep the app private while testing. Do not upload sensitive personal information or API keys to GitHub.
+	●	Historical hit rates are descriptive and are not calibrated future probabilities or proof of profitability.
