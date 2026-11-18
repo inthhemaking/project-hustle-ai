@@ -139,14 +139,14 @@ with tab_data:
        if games is None:
         games = pd.DataFrame()
 
-game_count = len(games)
+        game_count = len(games)
 
-st.info(f"{game_count:,} game-stat rows currently loaded in this session.")
+        st.info(f"{game_count:,} game-stat rows currently loaded in this session.")
 
-if not games.empty:
-st.dataframe(games.head(15), use_container_width=True)
-else:
-st.info("No game statistics loaded yet. Upload your game logs CSV to get started.")
+        if not games.empty:
+        st.dataframe(games.head(15), use_container_width=True)
+    else:
+        st.info("No game statistics loaded yet. Upload your game logs CSV to get started.")
     else:
         st.info("No game logs loaded yet. Download the template from the Setup Guide tab.")
 
