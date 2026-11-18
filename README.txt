@@ -1,6 +1,11 @@
-HUSTLE AI — ROSTER SEARCH FIX
+HUSTLE AI — DIRECT ESPN GAME LOG FIX
 
-This update replaces the ESPN search endpoint (which is returning HTTP 403) with a searchable player directory built from ESPN's NBA team roster endpoints through your Cloudflare Worker.
+WHAT THIS UPDATE FIXES
+- Removes the Cloudflare Worker URL from the app. ESPN requests are made directly from the iPhone browser.
+- Fixes ESPN game-log parsing: ESPN stores game metadata in an events object and stat rows inside seasonTypes[].categories[].events[]. The previous parser treated events as an array and did not join the stat rows to their dates/opponents.
+- Correctly reads made/attempted values such as 4-10 as 4 made three-pointers.
+- Keeps the existing on-device NBA player index so Player Research and Prop Analyzer do not need to rebuild the roster directory on every visit.
+- Preserves the existing tracker, saved picks, parlays, design, and local storage keys.
 
 FILES
 - index.html
@@ -10,21 +15,13 @@ FILES
 - manifest.webmanifest
 - icons/
 
-DEPLOY
-1. Open your GitHub repository: inthhemaking/project-hustle-ai
-2. Upload/replace the files above in the repository root (keep the icons folder).
-3. Commit the changes to main.
-4. Wait for GitHub Pages to finish publishing.
-5. On iPhone Safari, open the HUSTLE AI app and refresh. If it still shows old code, close the installed app, open the site in Safari, reload once, then Add to Home Screen app again if needed.
-
-PLAYER SEARCH
-- The first search builds an NBA roster index by requesting each team's /roster route through the Worker. This can take several seconds.
-- The index is cached on the device for 12 hours. Subsequent searches are local and fast.
-- Both Player Research and Prop Analyzer use the same roster index.
-- If one or more team roster endpoints fail, the index can still be built if at least 30 players were returned. A very incomplete index shows an error instead of pretending there are no matches.
-
-CLOUDFLARE WORKER
-Keep the existing Worker URL configured in app.js. Do not replace the Worker code for this update.
+INSTALL
+1. In your GitHub repository, replace the files in the ZIP at the repository root (keep the icons folder).
+2. Commit the changes to main and wait for GitHub Pages to publish.
+3. On iPhone, close the installed HUSTLE AI app completely, open https://inthhemaking.github.io/project-hustle-ai/ in Safari, reload, then reopen the home-screen app.
 
 IMPORTANT
-The user verified that the Worker can return NBA team data and the Lakers roster endpoint returns JSON player data. This update has not been deployed to GitHub Pages or live-tested on the user's iPhone yet. ESPN game-log availability remains dependent on the separate ESPN gamelog endpoint.
+- This build does not call the Cloudflare Worker.
+- Existing roster search data is reused from localStorage under hustle_player_index. If the browser's website data has been cleared, the app may need a new player index; ESPN's team-roster endpoints can have browser CORS restrictions.
+- ESPN is an unofficial public data source and can change or rate-limit requests.
+- The parser is validated against the documented ESPN v3 gamelog response shape. Live ESPN requests could not be exercised from this build environment, so the ZIP is not represented as live-network tested.
