@@ -1,299 +1,420 @@
-import sqlite3
-from datetime import datetime, timezone
-from pathlib import Path
+from __future__ import annotations
 
-import numpy as np
+import sqlite3
+from pathlib import Path
+from typing import Optional
+
 import pandas as pd
 import streamlit as st
 
 APP_DIR = Path(__file__).parent
-DB_PATH = APP_DIR / "hustle_ai.db"
+DB_PATH = APP_DIR / "hustle_tracker.db"
 
-st.set_page_config(page_title="Project HUSTLE AI", page_icon="🏀", layout="wide")
+st.set_page_config(
+    page_title="Project HUSTLE AI",
+    page_icon="🏀",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
-GAME_COLUMNS = ["date", "league", "player", "team", "opponent", "metric", "value"]
-PROP_COLUMNS = ["game_date", "league", "player", "team", "opponent", "metric", "line", "side", "odds_american"]
+# ---------- Styling ----------
+st.markdown(
+    """
+    <style>
+      .stApp { background: #0b0e14; color: #f4f6fb; }
+      [data-testid="stSidebar"] { background: #111722; }
+      .hero {
+        padding: 1.35rem 1.5rem; border: 1px solid #273246;
+        border-radius: 18px; background: linear-gradient(120deg,#151e2d,#10141d);
+        margin-bottom: 1rem;
+      }
+      .hero h1 { margin: 0; letter-spacing: .04em; }
+      .hero p { color: #aab6c8; margin: .35rem 0 0 0; }
+      .metric-card {
+        padding: 1rem; border-radius: 14px; border: 1px solid #293448;
+        background: #121a26; min-height: 105px;
+      }
+      .muted { color: #9ba9bd; font-size: .88rem; }
+      div[data-testid="stDataFrame"] { border: 1px solid #273246; border-radius: 12px; }
+      .small-note { color: #aab6c8; font-size: .82rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS predictions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            created_at TEXT NOT NULL,
-            game_date TEXT,
-            league TEXT NOT NULL,
-            player TEXT NOT NULL,
-            team TEXT,
-            opponent TEXT,
-            metric TEXT NOT NULL,
-            line REAL NOT NULL,
-            side TEXT NOT NULL,
-            window_n INTEGER NOT NULL,
-            sample_size INTEGER NOT NULL,
-            projection REAL,
-            historical_hit_rate REAL,
-            odds_american INTEGER,
-            result TEXT DEFAULT 'Pending',
-            actual_value REAL
-        )
-    """)
-    conn.commit()
-    return conn
+# ---------- Helpers ----------
+NBA_MARKETS = [
+    "points", "rebounds", "assists", "threes", "steals", "blocks",
+    "turnovers", "pra", "points_rebounds", "points_assists", "rebounds_assists",
+]
+NFL_MARKETS = [
+    "pass_yards", "rush_yards", "rec_yards", "receptions",
+    "pass_tds", "rush_tds", "rec_tds", "completions",
+]
+ALL_MARKETS = sorted(set(NBA_MARKETS + NFL_MARKETS))
 
-def american_to_implied(odds):
-    if pd.isna(odds) or odds == 0:
+def clean_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None:
+        return pd.DataFrame()
+    out = df.copy()
+    out.columns = [
+        str(c).strip().lower().replace(" ", "_").replace("-", "_")
+        for c in out.columns
+    ]
+    return out
+
+def safe_read_csv(upload) -> pd.DataFrame:
+    if upload is None:
+        return pd.DataFrame()
+    try:
+        return clean_columns(pd.read_csv(upload))
+    except Exception as exc:
+        st.error(f"Could not read that CSV: {exc}")
+        return pd.DataFrame()
+
+def normalize_logs(df: pd.DataFrame) -> pd.DataFrame:
+    """Accept wide game-log CSVs or long CSVs with stat/value columns."""
+    df = clean_columns(df)
+    if df.empty:
+        return pd.DataFrame()
+    if "player" not in df.columns:
+        return pd.DataFrame()
+
+    if "date" not in df.columns:
+        df["date"] = ""
+    if "sport" not in df.columns:
+        df["sport"] = "NBA"
+
+    if {"stat", "value"}.issubset(df.columns):
+        idx = [c for c in ["date", "sport", "player", "team", "opponent"] if c in df.columns]
+        try:
+            wide = df.pivot_table(
+                index=idx, columns="stat", values="value", aggfunc="first"
+            ).reset_index()
+            wide.columns.name = None
+            df = wide
+        except Exception:
+            return pd.DataFrame()
+
+    for col in ["team", "opponent", "sport"]:
+        if col not in df.columns:
+            df[col] = ""
+    df["player"] = df["player"].astype(str).str.strip()
+    df["sport"] = df["sport"].astype(str).str.upper().str.strip()
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    for col in df.columns:
+        if col not in {"date", "player", "team", "opponent", "sport"}:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df[df["player"].ne("")].copy()
+
+def normalize_props(df: pd.DataFrame) -> pd.DataFrame:
+    df = clean_columns(df)
+    if df.empty:
+        return pd.DataFrame()
+    required = {"player", "market", "line"}
+    if not required.issubset(df.columns):
+        return pd.DataFrame()
+    for col in ["team", "opponent", "sport", "odds", "game_date"]:
+        if col not in df.columns:
+            df[col] = ""
+    df["player"] = df["player"].astype(str).str.strip()
+    df["market"] = df["market"].astype(str).str.lower().str.strip()
+    df["line"] = pd.to_numeric(df["line"], errors="coerce")
+    df["odds"] = df["odds"].replace("", pd.NA)
+    df["odds"] = pd.to_numeric(df["odds"], errors="coerce")
+    df["sport"] = df["sport"].astype(str).str.upper().str.strip()
+    return df.dropna(subset=["line"]).copy()
+
+def get_market_value(row: pd.Series, market: str) -> Optional[float]:
+    market = market.lower()
+    if market in row.index and pd.notna(row[market]):
+        return float(row[market])
+    combos = {
+        "pra": ["points", "rebounds", "assists"],
+        "points_rebounds": ["points", "rebounds"],
+        "points_assists": ["points", "assists"],
+        "rebounds_assists": ["rebounds", "assists"],
+    }
+    if market in combos:
+        vals = [row.get(c) for c in combos[market]]
+        if all(pd.notna(v) for v in vals):
+            return float(sum(vals))
+    return None
+
+def american_implied_probability(odds) -> Optional[float]:
+    if pd.isna(odds):
         return None
     odds = float(odds)
+    if odds == 0:
+        return None
     if odds > 0:
         return 100 / (odds + 100)
     return abs(odds) / (abs(odds) + 100)
 
-def normalize_games(df):
-    df = df.copy()
-    missing = [c for c in GAME_COLUMNS if c not in df.columns]
-    if missing:
-        raise ValueError("Game log CSV is missing columns: " + ", ".join(missing))
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    df["league"] = df["league"].astype(str).str.upper().str.strip()
-    df["player"] = df["player"].astype(str).str.strip()
-    df["metric"] = df["metric"].astype(str).str.lower().str.strip()
-    df = df.dropna(subset=["date", "value"])
-    df = df[df["league"].isin(["NBA", "NFL"])]
-    return df.sort_values("date", ascending=False)
-
-def normalize_props(df):
-    df = df.copy()
-    missing = [c for c in PROP_COLUMNS if c not in df.columns]
-    if missing:
-        raise ValueError("Prop slate CSV is missing columns: " + ", ".join(missing))
-    df["game_date"] = pd.to_datetime(df["game_date"], errors="coerce")
-    df["line"] = pd.to_numeric(df["line"], errors="coerce")
-    df["odds_american"] = pd.to_numeric(df["odds_american"], errors="coerce")
-    df["league"] = df["league"].astype(str).str.upper().str.strip()
-    df["player"] = df["player"].astype(str).str.strip()
-    df["metric"] = df["metric"].astype(str).str.lower().str.strip()
-    df["side"] = df["side"].astype(str).str.title().str.strip()
-    df = df.dropna(subset=["line"])
-    df = df[df["league"].isin(["NBA", "NFL"]) & df["side"].isin(["Over", "Under"])]
-    return df
-
-def estimate(history, line, side, window_n):
-    values = history["value"].astype(float).head(window_n)
-    n = len(values)
-    if n == 0:
-        return None
-    if side == "Over":
-        hits = int((values > line).sum())
-    else:
-        hits = int((values < line).sum())
-    pushes = int((values == line).sum())
-    decided = n - pushes
-    hit_rate = hits / decided if decided else None
-    return {
-        "n": n,
-        "mean": float(values.mean()),
-        "median": float(values.median()),
-        "std": float(values.std(ddof=1)) if n > 1 else 0.0,
-        "hits": hits,
-        "pushes": pushes,
-        "decided": decided,
-        "hit_rate": hit_rate,
-        "values": values.tolist()
+def analyze_prop(prop: pd.Series, logs: pd.DataFrame) -> dict:
+    player = str(prop["player"]).strip().casefold()
+    market = str(prop["market"]).strip().lower()
+    sport = str(prop.get("sport", "")).upper()
+    sample = logs[logs["player"].str.casefold().eq(player)].copy()
+    if sport and sport not in {"", "NAN"}:
+        sample = sample[sample["sport"].eq(sport)]
+    sample["market_value"] = sample.apply(lambda r: get_market_value(r, market), axis=1)
+    sample = sample.dropna(subset=["market_value"]).sort_values("date", ascending=False)
+    line = float(prop["line"])
+    vals = sample["market_value"]
+    row = {
+        "player": prop["player"],
+        "team": prop.get("team", ""),
+        "opponent": prop.get("opponent", ""),
+        "market": market.replace("_", " ").title(),
+        "line": line,
+        "games": int(len(vals)),
+        "last_5_avg": round(vals.head(5).mean(), 2) if len(vals) else None,
+        "last_10_avg": round(vals.head(10).mean(), 2) if len(vals) else None,
+        "last_20_avg": round(vals.head(20).mean(), 2) if len(vals) else None,
+        "last_5_hit": round((vals.head(5) > line).mean() * 100, 1) if len(vals) else None,
+        "last_10_hit": round((vals.head(10) > line).mean() * 100, 1) if len(vals) else None,
+        "last_20_hit": round((vals.head(20) > line).mean() * 100, 1) if len(vals) else None,
+        "median": round(vals.median(), 2) if len(vals) else None,
+        "odds": prop.get("odds", None),
+        "implied_prob": american_implied_probability(prop.get("odds", None)),
     }
+    row["historical_hit_rate"] = round((vals > line).mean() * 100, 1) if len(vals) else None
+    return row
 
-def load_saved():
-    conn = db()
-    df = pd.read_sql_query("SELECT * FROM predictions ORDER BY id DESC", conn)
-    conn.close()
-    return df
+def init_db():
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS picks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                sport TEXT, player TEXT, market TEXT, line REAL,
+                odds REAL, side TEXT, result TEXT, notes TEXT
+            )"""
+        )
+        conn.commit()
 
-st.title("🏀 Project HUSTLE AI")
-st.caption("NBA + NFL sports analytics prototype · Transparent statistics, saved predictions, measurable results")
+def load_picks() -> pd.DataFrame:
+    init_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        return pd.read_sql_query("SELECT * FROM picks ORDER BY id DESC", conn)
 
+def add_pick(sport, player, market, line, odds, side, notes):
+    init_db()
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "INSERT INTO picks (sport, player, market, line, odds, side, notes) VALUES (?,?,?,?,?,?,?)",
+            (sport, player, market, float(line), None if pd.isna(odds) else float(odds), side, notes),
+        )
+        conn.commit()
+
+def update_pick_result(pick_id, result):
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("UPDATE picks SET result=? WHERE id=?", (result, int(pick_id)))
+        conn.commit()
+
+# ---------- App state ----------
+if "logs" not in st.session_state:
+    st.session_state.logs = pd.DataFrame()
+if "props" not in st.session_state:
+    st.session_state.props = pd.DataFrame()
+
+# ---------- Sidebar ----------
 with st.sidebar:
-    st.header("Prototype controls")
-    league_filter = st.multiselect("League filter", ["NBA", "NFL"], default=["NBA", "NFL"])
-    window_n = st.selectbox("Recent-game window", [5, 10, 20], index=1)
+    st.markdown("## 🏀 HUSTLE AI")
+    st.caption("Sports research workspace")
+    sport_filter = st.selectbox("Sport workspace", ["NBA", "NFL"])
     st.divider()
-    st.caption("Prototype v0.1 · CSV-driven · No live odds or injury feed yet")
+    st.markdown("### Load your data")
+    logs_file = st.file_uploader(
+        "Player game logs (CSV)", type=["csv"], key="logs_upload",
+        help="Upload one row per player per game. Use the included template."
+    )
+    if logs_file is not None:
+        new_logs = normalize_logs(safe_read_csv(logs_file))
+        if not new_logs.empty:
+            st.session_state.logs = new_logs
+            st.success(f"Loaded {len(new_logs):,} game rows.")
+        else:
+            st.error("The game-log CSV needs a player column and numeric stat columns.")
+    props_file = st.file_uploader(
+        "Today's prop slate (CSV)", type=["csv"], key="props_upload",
+        help="Required columns: player, market, line. Optional: team, opponent, sport, odds."
+    )
+    if props_file is not None:
+        new_props = normalize_props(safe_read_csv(props_file))
+        if not new_props.empty:
+            st.session_state.props = new_props
+            st.success(f"Loaded {len(new_props):,} props.")
+        else:
+            st.error("The prop CSV needs player, market, and line columns.")
+    if st.button("Clear uploaded data", use_container_width=True):
+        st.session_state.logs = pd.DataFrame()
+        st.session_state.props = pd.DataFrame()
+        st.rerun()
+    st.divider()
+    st.caption("No live sportsbook, injury, or stats feed is connected in this prototype.")
 
-tab_data, tab_analyze, tab_track, tab_guide = st.tabs(
-    ["1 · Data Center", "2 · Prop Analyzer", "3 · Prediction Tracker", "4 · Setup Guide"]
+logs = st.session_state.logs.copy()
+props = st.session_state.props.copy()
+if logs.empty:
+    filtered_logs = pd.DataFrame()
+else:
+    filtered_logs = logs[logs["sport"].isin([sport_filter, ""])].copy()
+
+if props.empty:
+    filtered_props = pd.DataFrame()
+else:
+    filtered_props = props[(props["sport"].isin([sport_filter, ""])) | (props["sport"].eq("NAN"))].copy()
+
+# ---------- Header ----------
+st.markdown(
+    """
+    <div class="hero">
+      <h1>PROJECT HUSTLE AI</h1>
+      <p>Research the numbers. Track the process. Never confuse historical trends with guarantees.</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
 )
 
-with tab_data:
-    st.subheader("Import historical player game logs")
-    st.write("Upload a CSV containing one row per player per game and per statistic. Keep NBA and NFL rows in the same file if you like.")
-    game_file = st.file_uploader("Player game logs CSV", type=["csv"], key="games")
-    if game_file:
-        try:
-            games = normalize_games(pd.read_csv(game_file))
-            st.session_state["games"] = games
-            st.success(f"Loaded {len(games):,} valid game-stat rows.")
-            st.dataframe(games.head(30), use_container_width=True)
-        except Exception as e:
-            st.error(str(e))
-    elif "games" in st.session_state:
-            games = st.session_state["games"]
-            if games is None:
-                games = pd.DataFrame()
+tab_overview, tab_analyzer, tab_tracker, tab_guide = st.tabs(
+    ["Overview", "Prop Analyzer", "Pick Tracker", "Data Guide"]
+)
 
-    game_count = len(games)
-
-    st.info(f"{game_count:,} game-stat rows currently loaded in this session.")
-
-    if not games.empty:
-        st.dataframe(games.head(15), use_container_width=True)
+with tab_overview:
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("Game-log rows", f"{len(filtered_logs):,}")
+    with c2:
+        st.metric("Props loaded", f"{len(filtered_props):,}")
+    with c3:
+        st.metric("Sport", sport_filter)
+    with c4:
+        st.metric("Tracked picks", f"{len(load_picks()):,}")
+    st.subheader("Workspace status")
+    if filtered_logs.empty:
+        st.info("No game logs loaded for this sport yet. Upload a game-log CSV from the sidebar to unlock historical analysis.")
     else:
-        st.info("No game statistics loaded yet. Upload your game logs CSV to get started.")
+        st.success(f"{len(filtered_logs):,} game-log rows are ready for analysis.")
+        st.dataframe(filtered_logs.head(12), use_container_width=True, hide_index=True)
+    if filtered_props.empty:
+        st.info("No prop slate loaded yet. Upload a prop-slate CSV to compare lines against player history.")
     else:
-        st.info("No game logs loaded yet. Download the template from the Setup Guide tab.")
+        st.write("Current prop slate")
+        st.dataframe(filtered_props, use_container_width=True, hide_index=True)
 
-    st.divider()
-    st.subheader("Import a prop slate")
-    st.write("Each row represents one prop line you want the analyzer to evaluate.")
-    prop_file = st.file_uploader("Today's props CSV", type=["csv"], key="props")
-    if prop_file:
-        try:
-            props = normalize_props(pd.read_csv(prop_file))
-            st.session_state["props"] = props
-            st.success(f"Loaded {len(props):,} prop lines.")
-            st.dataframe(props, use_container_width=True)
-        except Exception as e:
-            st.error(str(e))
-    elif "props" in st.session_state:
-        st.info(f"{len(st.session_state['props']):,} prop lines currently loaded in this session.")
-
-with tab_analyze:
-    st.subheader("Historical prop analysis")
-    if "games" not in st.session_state:
-        st.warning("Upload player game logs in Data Center first.")
-    elif "props" not in st.session_state:
-        st.warning("Upload a prop slate in Data Center first.")
+with tab_analyzer:
+    st.subheader(f"{sport_filter} player prop analyzer")
+    st.caption("Hit rates are historical frequencies from the uploaded sample, not forward-looking guarantees.")
+    if filtered_props.empty:
+        st.info("Upload a prop-slate CSV in the sidebar to populate the analyzer.")
+    elif filtered_logs.empty:
+        st.warning("Your prop slate is loaded, but there are no matching game logs yet. Upload player game logs to calculate trends.")
+        st.dataframe(filtered_props, use_container_width=True, hide_index=True)
     else:
-        games = st.session_state["games"]
-        props = st.session_state["props"]
-        if league_filter:
-            props = props[props["league"].isin(league_filter)]
-        st.caption("Historical hit rate is descriptive, not a calibrated forecast. It does not account for injuries, role changes, matchup, or market movement.")
-        for idx, prop in props.iterrows():
-            history = games[
-                (games["league"] == prop["league"]) &
-                (games["player"].str.casefold() == str(prop["player"]).casefold()) &
-                (games["metric"] == prop["metric"])
-            ].sort_values("date", ascending=False)
-            result = estimate(history, float(prop["line"]), prop["side"], window_n)
-            title = f"{prop['player']} · {prop['metric'].replace('_',' ').title()} {prop['side']} {prop['line']:g}"
-            with st.expander(title, expanded=(idx == props.index[0])):
-                c1, c2, c3, c4 = st.columns(4)
-                if result is None:
-                    st.error("No matching player history found. Check league, player spelling and metric name.")
-                    continue
-                c1.metric("Recent sample", f"{result['n']} games")
-                c2.metric("Average", f"{result['mean']:.2f}")
-                c3.metric("Median", f"{result['median']:.2f}")
-                c4.metric("Historical hit rate", "N/A" if result["hit_rate"] is None else f"{result['hit_rate']:.1%}")
-                st.write(f"Hits: **{result['hits']}** · Pushes: **{result['pushes']}** · Decided games: **{result['decided']}**")
-                implied = american_to_implied(prop.get("odds_american", np.nan))
-                if implied is not None:
-                    st.write(f"Sportsbook break-even probability before any adjustments: **{implied:.1%}**")
-                    if result["hit_rate"] is not None:
-                        st.write(f"Historical hit-rate difference vs break-even: **{result['hit_rate'] - implied:+.1%}**")
-                st.write("Most recent values:", ", ".join(f"{x:g}" for x in result["values"]))
-                if result["n"] < 10:
-                    st.warning("Small sample: treat this as preliminary descriptive information, not a reliable edge.")
-                if st.button("Save this prediction", key=f"save_{idx}"):
-                    conn = db()
-                    conn.execute("""
-                        INSERT INTO predictions
-                        (created_at, game_date, league, player, team, opponent, metric, line, side,
-                         window_n, sample_size, projection, historical_hit_rate, odds_american)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (
-                        datetime.now(timezone.utc).isoformat(),
-                        str(prop["game_date"].date()) if pd.notna(prop["game_date"]) else None,
-                        prop["league"], prop["player"], prop.get("team", ""), prop.get("opponent", ""),
-                        prop["metric"], float(prop["line"]), prop["side"], window_n, result["n"],
-                        result["mean"], result["hit_rate"],
-                        int(prop["odds_american"]) if pd.notna(prop["odds_american"]) else None
-                    ))
-                    conn.commit()
-                    conn.close()
-                    st.success("Prediction saved to the tracker.")
+        results = [analyze_prop(row, filtered_logs) for _, row in filtered_props.iterrows()]
+        analysis_df = pd.DataFrame(results)
+        if "last_10_hit" in analysis_df:
+            analysis_df = analysis_df.sort_values(
+                "last_10_hit", ascending=False, na_position="last"
+            )
+        display_cols = [
+            "player", "team", "opponent", "market", "line", "games",
+            "last_5_avg", "last_10_avg", "last_20_avg", "median",
+            "last_5_hit", "last_10_hit", "last_20_hit", "historical_hit_rate",
+            "odds", "implied_prob",
+        ]
+        st.dataframe(
+            analysis_df[[c for c in display_cols if c in analysis_df.columns]],
+            use_container_width=True, hide_index=True,
+        )
+        st.download_button(
+            "Download analysis CSV",
+            analysis_df.to_csv(index=False).encode("utf-8"),
+            file_name="hustle_ai_prop_analysis.csv",
+            mime="text/csv",
+        )
+        st.divider()
+        st.markdown("#### Add a prop to your tracker")
+        choice_labels = [
+            f"{r['player']} — {r['market']} {r['line']}"
+            for _, r in analysis_df.iterrows()
+        ]
+        selected_label = st.selectbox("Select a prop", choice_labels)
+        selected_idx = choice_labels.index(selected_label)
+        selected = analysis_df.iloc[selected_idx]
+        side = st.radio("Side", ["Over", "Under"], horizontal=True)
+        notes = st.text_input("Notes (optional)", placeholder="Matchup, role, injury context, etc.")
+        if st.button("Add pick to tracker", type="primary"):
+            add_pick(
+                sport_filter, selected["player"], selected["market"],
+                selected["line"], selected.get("odds"), side, notes
+            )
+            st.success("Pick added to your tracker.")
 
-with tab_track:
-    st.subheader("Prediction performance tracker")
-    saved = load_saved()
-    if saved.empty:
-        st.info("No predictions saved yet. Analyze a prop and select 'Save this prediction'.")
+with tab_tracker:
+    st.subheader("Pick tracker")
+    picks = load_picks()
+    if picks.empty:
+        st.info("No picks tracked yet. Add one from the Prop Analyzer tab.")
     else:
-        total = len(saved)
-        settled = saved[saved["result"].isin(["Win", "Loss", "Push"])]
-        wins = int((settled["result"] == "Win").sum())
-        losses = int((settled["result"] == "Loss").sum())
-        pushes = int((settled["result"] == "Push").sum())
-        a, b, c, d = st.columns(4)
-        a.metric("Saved predictions", total)
-        b.metric("Settled", len(settled))
-        c.metric("Wins / losses", f"{wins} / {losses}")
-        d.metric("Win rate (decided)", f"{wins/(wins+losses):.1%}" if wins + losses else "N/A")
-        st.caption("This is a simple count-based tracker. ROI requires recording actual stake and payout/odds and is not calculated in v0.1.")
-        st.dataframe(saved, use_container_width=True)
-        st.markdown("#### Settle a prediction")
-        pending = saved[saved["result"] == "Pending"]
-        if not pending.empty:
-            labels = {int(r.id): f"#{r.id} · {r.league} · {r.player} · {r.metric} {r.side} {r.line}" for r in pending.itertuples()}
-            chosen = st.selectbox("Choose a pending prediction", list(labels.keys()), format_func=lambda x: labels[x])
-            r = pending[pending["id"] == chosen].iloc[0]
-            actual = st.number_input("Actual player statistic", min_value=0.0, value=0.0, step=1.0)
-            if st.button("Save actual result"):
-                if actual == r["line"]:
-                    outcome = "Push"
-                elif (r["side"] == "Over" and actual > r["line"]) or (r["side"] == "Under" and actual < r["line"]):
-                    outcome = "Win"
-                else:
-                    outcome = "Loss"
-                conn = db()
-                conn.execute("UPDATE predictions SET result=?, actual_value=? WHERE id=?", (outcome, float(actual), int(chosen)))
-                conn.commit()
-                conn.close()
-                st.success(f"Prediction #{chosen} settled as {outcome}. Refresh the page to update totals.")
+        st.dataframe(picks, use_container_width=True, hide_index=True)
+        st.markdown("#### Settle a pick")
+        unsettled = picks[picks["result"].isna() | picks["result"].eq("")]
+        if not unsettled.empty:
+            selected_pick = st.selectbox(
+                "Pick to settle",
+                unsettled["id"].tolist(),
+                format_func=lambda x: f"#{x} — {unsettled.loc[unsettled['id'].eq(x), 'player'].iloc[0]} ({unsettled.loc[unsettled['id'].eq(x), 'side'].iloc[0]})",
+            )
+            result = st.selectbox("Result", ["Win", "Loss", "Push", "Void"])
+            if st.button("Save result"):
+                update_pick_result(selected_pick, result)
+                st.success("Result saved.")
+                st.rerun()
         else:
-            st.success("All saved predictions have been settled.")
+            st.caption("All tracked picks have a result recorded.")
+        st.download_button(
+            "Download pick history",
+            picks.to_csv(index=False).encode("utf-8"),
+            file_name="hustle_ai_pick_history.csv",
+            mime="text/csv",
+        )
 
 with tab_guide:
-    st.subheader("How to get the prototype running")
-    st.markdown("""
-    **You need a computer for the initial setup** (Windows, Mac or Linux). The app is mobile-friendly once hosted.
-
-    1. Install Python 3.10 or newer.
-    2. Put `app.py` and `requirements.txt` in the same folder.
-    3. Open Terminal / Command Prompt in that folder.
-    4. Run `pip install -r requirements.txt`.
-    5. Run `streamlit run app.py`.
-    6. Open the local address Streamlit prints.
-
-    **CSV rules**
-    - Use the provided game-log template and prop-slate template.
-    - Use consistent player names and metric labels between files.
-    - Use `NBA` or `NFL` in the league column.
-    - Examples of metrics: `points`, `rebounds`, `assists`, `passing_yards`, `rushing_yards`, `receptions`.
-    - For game logs, `value` is the actual statistic from that game.
-    - For props, `side` must be `Over` or `Under`; American odds are optional.
-
-    **Current limitations**
-    - No live sportsbook odds, injury feed, starting lineup feed or automatic data refresh.
-    - No machine-learning model has been trained yet.
-    - Historical hit rates are not calibrated probabilities and do not prove future profitability.
-    - Predictions are saved locally in a SQLite database beside the app.
-    """)
-    st.download_button("Download game-log CSV template",
-                       "date,league,player,team,opponent,metric,value\n",
-                       file_name="game_logs_template.csv", mime="text/csv")
-    st.download_button("Download prop-slate CSV template",
-                       "game_date,league,player,team,opponent,metric,line,side,odds_american\n",
-                       file_name="prop_slate_template.csv", mime="text/csv")
+    st.subheader("CSV format")
+    st.markdown(
+        """
+        **Game logs:** one row per player per game. Include `player`, `date`, `sport`,
+        and one or more stat columns. Column names should match the markets below.
+        """
+    )
+    st.code(
+        "date,sport,player,team,opponent,points,rebounds,assists,threes\n"
+        "2026-11-01,NBA,Example Player,ABC,XYZ,24,8,6,3\n"
+        "2026-11-03,NBA,Example Player,ABC,QRS,19,10,4,2",
+        language="csv",
+    )
+    st.markdown("**Prop slate:** one row per prop.")
+    st.code(
+        "sport,player,team,opponent,market,line,odds\n"
+        "NBA,Example Player,ABC,XYZ,points,22.5,-110\n"
+        "NBA,Example Player,ABC,XYZ,rebounds,7.5,+105\n"
+        "NFL,Example Player,ABC,XYZ,rec_yards,64.5,-115",
+        language="csv",
+    )
+    st.markdown("**Supported markets**")
+    st.write("NBA:", ", ".join(NBA_MARKETS))
+    st.write("NFL:", ", ".join(NFL_MARKETS))
+    st.warning(
+        "This prototype does not fetch live statistics, injuries, starting lineups, "
+        "or sportsbook odds. Upload verified data before relying on any analysis. "
+        "Historical hit rates are descriptive and do not guarantee future outcomes."
+    )
 
 st.divider()
-st.caption("Project HUSTLE AI v0.1 · Research and educational analytics only · No guarantee of outcomes")
+st.caption(
+    "Project HUSTLE AI • Prototype • Data is user-supplied. "
+    "Streamlit Community Cloud local files may reset; use a persistent database before offering paid accounts."
+)
