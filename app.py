@@ -136,7 +136,7 @@ with tab_data:
             st.error(str(e))
     elif "games" in st.session_state:
         games = st.session_state["games"]
-       if games is None:
+        if games is None:
         games = pd.DataFrame()
 
         game_count = len(games)
