@@ -93,6 +93,34 @@ hr {border-color:var(--h-border)}
  [data-testid="column"] {min-width:100% !important;flex:1 1 100% !important}
  .hustle-game-grid {grid-template-columns:repeat(2,minmax(0,1fr))}
 }
+
+.hustle-prop-hero {background:linear-gradient(135deg,#142b45,#102b2b);border:1px solid #34516e;border-radius:20px;padding:18px;margin:8px 0 16px;box-shadow:0 12px 30px rgba(0,0,0,.2)}
+.hustle-prop-kicker {color:#55e6a5;font-size:.7rem;font-weight:850;letter-spacing:.13em}
+.hustle-prop-player {color:#f4f7fc;font-size:1.15rem;font-weight:800;margin-top:6px}
+.hustle-prop-record {color:#f4f7fc;font-size:1.05rem;font-weight:800;margin:15px 0 10px}
+.hustle-prop-record span {color:#8fa2ba;padding:0 5px}
+.hustle-prop-bar {height:10px;border-radius:20px;background:#263952;overflow:hidden}
+.hustle-prop-bar div {height:100%;background:linear-gradient(90deg,#55e6a5,#2eae80);border-radius:20px}
+.hustle-prop-split {display:flex;justify-content:space-between;color:#dce6f3;font-size:.75rem;font-weight:800;margin-top:8px}
+.hustle-prop-foot {color:#aebbd0;font-size:.72rem;margin-top:9px}
+.hustle-sample-card {background:linear-gradient(145deg,#15263c,#101a29);border:1px solid #2b405c;border-radius:15px;padding:12px 10px;margin:5px 0;text-align:center;min-height:126px}
+.hustle-sample-label {color:#55e6a5;font-size:.67rem;font-weight:850;letter-spacing:.1em}
+.hustle-sample-average {color:#f4f7fc;font-size:1.65rem;font-weight:850;line-height:1.35;margin-top:4px}
+.hustle-sample-caption {color:#aebbd0;font-size:.61rem;line-height:1.4}
+.hustle-sample-hit {color:#55e6a5;font-size:.85rem;font-weight:850;margin:5px 0 2px}
+.hustle-prop-game {display:flex;align-items:center;justify-content:space-between;gap:12px;background:#111c2b;border:1px solid #263952;border-radius:12px;padding:11px 13px;margin:6px 0}
+.hustle-prop-game>div:first-child {min-width:0}
+.hustle-prop-game strong {display:block;color:#f4f7fc;font-size:.9rem}
+.hustle-prop-game span {display:block;color:#aebbd0;font-size:.72rem;margin-top:3px;overflow-wrap:anywhere}
+.hustle-prop-game-result {text-align:right;flex-shrink:0}
+.hustle-prop-game-result strong {font-size:1.1rem}
+@media(max-width:600px) {
+ .hustle-prop-hero {padding:15px;border-radius:16px}
+ .hustle-sample-card {padding:10px 5px;min-height:116px}
+ .hustle-sample-average {font-size:1.4rem}
+ .hustle-prop-game {padding:10px}
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -699,15 +727,23 @@ elif section == "Injury Center":
     except Exception as exc: st.error(f"Injury feed unavailable: {exc}")
 
 elif section == "Prop Analyzer":
-    st.subheader("Player prop analyzer")
-    st.caption("Enter a line from your sportsbook. ESPN does not provide a complete sportsbook prop board.")
+    st.subheader("Prop Lab")
+    st.caption("Build a player prop analysis from actual ESPN game logs. Enter the line shown by your sportsbook.")
     player = player_picker("prop")
     if player:
-        col1, col2, col3 = st.columns([1.3, 1, 1])
-        with col1: market = st.selectbox("Stat market", ["Points", "Rebounds", "Assists", "3-pointers made", "Steals", "Blocks", "PRA"])
-        with col2: line = st.number_input("Prop line", min_value=0.0, max_value=300.0, value=20.5, step=0.5)
-        with col3: season = st.selectbox("Season", [2027, 2026, 2025, 2024, 2023], key="prop_season")
-        if st.button("Analyze player prop", type="primary", use_container_width=True):
+        st.markdown(
+            f'<div class="hustle-game"><div class="hustle-game-top"><span>PLAYER SELECTED</span><span>{html.escape(str(player.get("team", "NBA")))}</span></div><strong style="font-size:1.25rem;color:#f4f7fc">{html.escape(player["name"])}</strong><div style="color:#aebbd0;font-size:.8rem;margin-top:4px">Choose a market and set your line below.</div></div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("#### Build your prop")
+        market = st.selectbox("Stat market", ["Points", "Rebounds", "Assists", "3-pointers made", "Steals", "Blocks", "PRA"], key="prop_market")
+        c1, c2 = st.columns(2)
+        with c1:
+            line = st.number_input("Prop line", min_value=0.0, max_value=300.0, value=20.5, step=0.5, key="prop_line")
+        with c2:
+            season = st.selectbox("NBA season", [2027, 2026, 2025, 2024, 2023], key="prop_season")
+        analyze = st.button("Analyze prop", type="primary", use_container_width=True)
+        if analyze:
             st.session_state["active_prop"] = {"player": player, "market": market, "line": line, "season": season}
         prop = st.session_state.get("active_prop")
         if prop and prop["player"]["id"] == player["id"]:
@@ -718,24 +754,56 @@ elif section == "Prop Analyzer":
                     st.warning(f"ESPN did not supply the {prop['market']} stat in this game-log response. No hit rate was calculated.")
                 else:
                     valid = pd.DataFrame({"Date": log["Date"], "Opponent": log["Opponent"], "Result": values}).dropna(subset=["Result"]).sort_values("Date", ascending=False)
+                    valid["Result"] = pd.to_numeric(valid["Result"], errors="coerce")
+                    valid = valid.dropna(subset=["Result"]).copy()
                     valid["Outcome"] = valid["Result"].apply(lambda x: "Over" if x > prop["line"] else ("Under" if x < prop["line"] else "Push"))
-                    total = len(valid); over = int((valid["Result"] > prop["line"]).sum()); under = int((valid["Result"] < prop["line"]).sum()); push = int((valid["Result"] == prop["line"]).sum())
-                    a,b,c,d = st.columns(4); a.metric("Games", total); b.metric("Over", f"{over}/{total}" if total else "—"); c.metric("Under", f"{under}/{total}" if total else "—"); d.metric("Push", push)
-                    rows = []
-                    for n in [5, 10, 20]:
-                        sample = valid.head(n); count = len(sample)
-                        rows.append({"Sample": f"Last {n}", "Games": count, "Average": round(sample["Result"].mean(), 2) if count else "—", "Over %": round((sample["Result"] > prop["line"]).mean()*100, 1) if count else "—", "Under %": round((sample["Result"] < prop["line"]).mean()*100, 1) if count else "—"})
-                    st.markdown("#### Recent sample breakdown")
-                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                    total = len(valid)
+                    over = int((valid["Result"] > prop["line"]).sum())
+                    under = int((valid["Result"] < prop["line"]).sum())
+                    push = int((valid["Result"] == prop["line"]).sum())
+                    decided = over + under
+                    over_pct = (over / decided * 100) if decided else 0
+                    under_pct = (under / decided * 100) if decided else 0
+                    st.markdown("#### Historical results")
+                    st.markdown(
+                        f'<div class="hustle-prop-hero"><div class="hustle-prop-kicker">{html.escape(prop["market"].upper())} · LINE {prop["line"]:g}</div><div class="hustle-prop-player">{html.escape(prop["player"]["name"])}</div><div class="hustle-prop-record">{over} OVER <span>·</span> {under} UNDER <span>·</span> {push} PUSH</div><div class="hustle-prop-bar"><div style="width:{over_pct:.2f}%"></div></div><div class="hustle-prop-split"><span>OVER {over_pct:.1f}%</span><span>UNDER {under_pct:.1f}%</span></div><div class="hustle-prop-foot">{total} games in sample · {decided} non-push results</div></div>',
+                        unsafe_allow_html=True,
+                    )
+                    st.markdown("#### Recent performance")
+                    sample_cols = st.columns(3)
+                    for col, n in zip(sample_cols, [5, 10, 20]):
+                        sample = valid.head(n)
+                        count = len(sample)
+                        avg = sample["Result"].mean() if count else None
+                        sample_over = int((sample["Result"] > prop["line"]).sum())
+                        sample_under = int((sample["Result"] < prop["line"]).sum())
+                        sample_push = int((sample["Result"] == prop["line"]).sum())
+                        sample_decided = sample_over + sample_under
+                        hit = sample_over / sample_decided * 100 if sample_decided else 0
+                        with col:
+                            st.markdown(
+                                f'<div class="hustle-sample-card"><div class="hustle-sample-label">LAST {n}</div><div class="hustle-sample-average">{avg:.1f}</div><div class="hustle-sample-caption">AVG · {count} GAMES</div><div class="hustle-sample-hit">{hit:.0f}% OVER</div><div class="hustle-sample-caption">{sample_over} O · {sample_under} U · {sample_push} P</div></div>',
+                                unsafe_allow_html=True,
+                            )
                     st.markdown("#### Game-by-game results")
-                    st.dataframe(valid.head(20), use_container_width=True, hide_index=True)
-                    st.caption("Historical frequencies only; not predictions or calibrated probabilities. Pushes are excluded from over/under rates.")
-                    side = st.radio("Save which side?", ["Over", "Under"], horizontal=True, key="save_side")
-                    notes = st.text_input("Notes (optional)", key="prop_notes")
-                    if st.button("Save pick to tracker"):
+                    for _, game in valid.head(20).iterrows():
+                        game_date = pd.to_datetime(game["Date"], errors="coerce")
+                        date_label = game_date.strftime("%b %d") if not pd.isna(game_date) else str(game["Date"])
+                        outcome = game["Outcome"]
+                        outcome_color = "#55e6a5" if outcome == "Over" else ("#65a9ff" if outcome == "Under" else "#f4c56a")
+                        st.markdown(
+                            f'<div class="hustle-prop-game"><div><strong>{html.escape(date_label)}</strong><span>{html.escape(str(game["Opponent"]))}</span></div><div class="hustle-prop-game-result"><strong>{game["Result"]:g}</strong><span style="color:{outcome_color}">{outcome.upper()}</span></div></div>',
+                            unsafe_allow_html=True,
+                        )
+                    st.caption("Historical frequencies describe past results only; they are not predictions or calibrated probabilities. Pushes are excluded from over/under percentages.")
+                    st.markdown("#### Save this pick")
+                    side = st.radio("Choose a side", ["Over", "Under"], horizontal=True, key="save_side")
+                    notes = st.text_input("Notes (optional)", key="prop_notes", placeholder="Add matchup notes or your reasoning")
+                    if st.button("Save pick to tracker", use_container_width=True):
                         add_pick(prop["player"]["name"], prop["market"], prop["line"], side, "", notes)
-                        st.success("Pick saved in this app's local tracker. Open Pick Tracker & Parlays from the navigation menu.")
-            except Exception as exc: st.error(f"Unable to analyze this player: {exc}")
+                        st.success("Pick saved. Find it in Pick Tracker & Parlays.")
+            except Exception as exc:
+                st.error(f"Unable to analyze this player: {exc}")
 
 elif section == "Matchup Research":
     st.subheader("Matchup research")
