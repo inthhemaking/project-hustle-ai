@@ -1,7 +1,6 @@
-// All ESPN requests go through the Cloudflare Worker to avoid browser CORS failures.
-const PROXY='https://hustle-ai-espn-proxy.workmanquintavius.workers.dev';
-const API=`${PROXY}/site/sports/basketball/nba`;
-const WEB=`${PROXY}/web/sports/basketball/nba`;
+// Use ESPN's public browser-accessible APIs directly. No Cloudflare Worker or proxy required.
+const API='https://site.api.espn.com/apis/site/v2/sports/basketball/nba';
+const WEB='https://site.web.api.espn.com/apis/common/v3/sports/basketball/nba';
 const $=s=>document.querySelector(s);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let tab='home',games=[],injuries=[],injuryFetched=null,playerResults=[],selectedPlayer=null,gameLog=[],activeMarket='points',activeSide='Over',lastAnalysis=null;
 const load=(k,d=[])=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}};const save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
@@ -12,7 +11,7 @@ async function get(url,opts={}){
  try{
   const r=await fetch(url,{...opts,signal:controller.signal,cache:opts.cache||'no-store'});
   const body=await r.text();
-  let data;try{data=JSON.parse(body)}catch{throw new Error(`Unexpected response (${r.status}). Check the Cloudflare proxy route.`)}
+  let data;try{data=JSON.parse(body)}catch{throw new Error(`ESPN returned an unexpected response (${r.status}). Try again shortly.`)}
   if(!r.ok)throw new Error(data.error||`Feed error (${r.status})`);
   return data;
  }catch(e){if(e.name==='AbortError')throw new Error('Request timed out. Try again.');throw e}
@@ -42,8 +41,8 @@ function extractPlayers(data){
  for(const group of data?.results||[])for(const item of group?.contents||[])add(item);
  return [...found.values()];
 }
-// ESPN's public search route is returning 403, so build a local searchable index
-// from the team roster route that was verified through the user's Cloudflare Worker.
+// Build the searchable directory once, then keep using the on-device copy. This avoids
+// repeatedly requesting ESPN's roster endpoints and preserves search on this iPhone.
 const NBA_TEAMS=['atl','bos','bkn','cha','chi','cle','dal','den','det','gs','hou','ind','lac','lal','mem','mia','mil','min','no','ny','okc','orl','phi','phx','por','sac','sa','tor','utah','wsh'];
 let playerIndexPromise=null;
 function normalizePlayerName(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim()}
@@ -72,7 +71,7 @@ function rosterPlayers(data,abbr){
 }
 async function loadPlayerIndex(force=false){
  if(!force){
-  try{const cached=JSON.parse(localStorage.getItem('hustle_player_index')||'null');if(cached&&Date.now()-cached.savedAt<12*60*60*1000&&Array.isArray(cached.players)&&cached.players.length){return cached.players;}}catch{}
+  try{const cached=JSON.parse(localStorage.getItem('hustle_player_index')||'null');if(cached&&Array.isArray(cached.players)&&cached.players.length){return cached.players;}}catch{}
   if(playerIndexPromise)return playerIndexPromise;
  }
  playerIndexPromise=(async()=>{
@@ -127,8 +126,47 @@ async function searchPlayers(){
  }catch(e){list.innerHTML=`<div class="notice error">NBA player directory unavailable: ${esc(e.message)}</div>`}
 }
 async function choosePlayer(id){selectedPlayer=playerResults.find(p=>p.id===id);if(!selectedPlayer)return;$('#selectedPlayer').innerHTML=loading(`Loading ${selectedPlayer.name}`);try{const season=nbaSeasonYear();const d=await get(`${WEB}/athletes/${id}/gamelog?season=${season}&seasontype=2`);gameLog=parseLog(d);renderPlayerDetail()}catch(e){$('#selectedPlayer').innerHTML=`<div class="notice error">Could not load game log: ${esc(e.message)}</div>`}}
-function parseLog(d){const out=[];const labels=d.labels||d.statistics?.labels||[];const names=d.names||[];const events=d.events||{};const entries=d.events||[];let rows=Array.isArray(entries)?entries:[];if(!rows.length&&Array.isArray(d.seasonTypes))for(const st of d.seasonTypes)for(const cat of st.categories||[])rows.push(...(cat.events||[]));for(const r of rows){const stats=r.stats||r.values||[];const obj={date:r.date||r.gameDate||r.event?.date||'',opponent:r.opponent?.abbreviation||r.opponent?.displayName||r.opponent||r.event?.name||'Game'};labels.forEach((l,i)=>obj[String(l).toLowerCase()]=Number(stats[i]));names.forEach((l,i)=>obj[String(l).toLowerCase()]=Number(stats[i]));if(Number.isFinite(obj.points)||Number.isFinite(obj.pts)||stats.length)out.push(obj)}return out.sort((a,b)=>new Date(b.date)-new Date(a.date))}
-const marketKeys={points:['points','pts'],rebounds:['rebounds','reb'],assists:['assists','ast'],threes:['three pointers made','3pm','3pt'],pra:['pra']};function statValue(row,market){for(const k of marketKeys[market]||[]){const key=Object.keys(row).find(x=>x===k||x.includes(k));if(key&&Number.isFinite(row[key]))return row[key]}if(market==='pra'){const p=statValue(row,'points'),r=statValue(row,'rebounds'),a=statValue(row,'assists');if([p,r,a].every(Number.isFinite))return p+r+a}return null}
+function parseLog(d){
+ const baseLabels=d.labels||d.statistics?.labels||[];
+ const baseNames=d.names||d.statistics?.names||[];
+ const eventMap=Array.isArray(d.events)?Object.fromEntries(d.events.map(e=>[String(e.id||e.eventId||''),e])):(d.events||{});
+ const statRows=[];
+ if(Array.isArray(d.events))statRows.push(...d.events);
+ for(const seasonType of d.seasonTypes||[]){
+  for(const category of seasonType.categories||[]){
+   if(Array.isArray(category.events)){
+    for(const row of category.events)statRows.push({...row,_labels:category.labels||baseLabels,_names:category.names||baseNames});
+   }
+  }
+ }
+ const parsed=[];
+ for(const row of statRows){
+  const eventId=String(row.eventId||row.id||row.event?.id||'');
+  const meta=eventMap[eventId]||row.event||{};
+  const stats=Array.isArray(row.stats)?row.stats:(Array.isArray(row.values)?row.values:[]);
+  const labels=row._labels||baseLabels,names=row._names||baseNames;
+  const toNumber=value=>{
+   if(value===null||value===undefined||value==='')return NaN;
+   const text=String(value).trim();
+   // ESPN records made/attempted stats as strings such as 4-10; props need makes.
+   const madeAttempted=text.match(/^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/);
+   return Number(madeAttempted?madeAttempted[1]:text.replace(/,/g,''));
+  };
+  const item={
+   eventId,
+   date:meta.gameDate||meta.date||row.gameDate||row.date||'',
+   opponent:meta.opponent?.abbreviation||meta.opponent?.displayName||meta.opponent||row.opponent?.abbreviation||row.opponent?.displayName||row.opponent||'Game',
+   gameResult:meta.gameResult||row.gameResult||''
+  };
+  labels.forEach((label,i)=>{if(stats[i]!==undefined){const key=String(label).toLowerCase().trim();item[key]=toNumber(stats[i]);}});
+  names.forEach((name,i)=>{if(stats[i]!==undefined){const key=String(name).toLowerCase().replace(/[^a-z0-9]/g,'');const value=toNumber(stats[i]);if(Number.isFinite(value))item[key]=value;}});
+  if(eventId||item.date||stats.length)parsed.push(item);
+ }
+ const unique=new Map();
+ for(const row of parsed){const key=row.eventId||`${row.date}|${row.opponent}`;if(!unique.has(key))unique.set(key,row);}
+ return [...unique.values()].sort((a,b)=>new Date(b.date||0)-new Date(a.date||0));
+}
+const marketKeys={points:['points','pts'],rebounds:['rebounds','reb'],assists:['assists','ast'],threes:['three pointers made','threepointsmade','three points made','3pm','3pt'],pra:['pra']};function statValue(row,market){const keys=Object.keys(row);for(const k of marketKeys[market]||[]){const key=keys.find(x=>x===k)||keys.find(x=>x.includes(k));if(key&&Number.isFinite(row[key]))return row[key]}if(market==='pra'){const p=statValue(row,'points'),r=statValue(row,'rebounds'),a=statValue(row,'assists');if([p,r,a].every(Number.isFinite))return p+r+a}return null}
 function playerView(){const picked=selectedPlayer?`<div id="selectedPlayer"></div>`:'<div id="selectedPlayer" class="empty">Search for a player to see their recent games and trend data.</div>';$('#view').innerHTML=`<div class="eyebrow">PLAYER LAB</div><h1>PLAYER RESEARCH</h1><p class="sub">Search the NBA roster directory and inspect recent game logs.</p><div class="field"><label>PLAYER NAME</label><div class="row"><input id="playerSearch" class="input" placeholder="Search NBA player…" autocomplete="off"><button class="btn" id="searchBtn">Search</button></div></div><div id="playerResults"></div>${picked}<div class="footnote">Player game-log availability depends on ESPN's public endpoint and current season data.</div>`;$('#searchBtn').onclick=searchPlayers;$('#playerSearch').addEventListener('keydown',e=>{if(e.key==='Enter')searchPlayers()});if(selectedPlayer)renderPlayerDetail()}
 function renderPlayerDetail(){const box=$('#selectedPlayer');if(!box)return;const m=activeMarket,vals=gameLog.map(g=>statValue(g,m)).filter(Number.isFinite),last=vals.slice(0,10),avg=last.length?last.reduce((a,b)=>a+b,0)/last.length:0;box.innerHTML=`<article class="card"><div class="player-row"><div class="avatar">${esc(selectedPlayer.name.split(' ').map(x=>x[0]).slice(0,2).join(''))}</div><div><div class="player-name">${esc(selectedPlayer.name)}</div><div class="player-meta">${esc(selectedPlayer.team)} · ${esc(selectedPlayer.position)}</div></div></div><div class="section-head"><h2>Recent performance</h2></div><div class="chips">${Object.keys(marketKeys).map(k=>`<button class="chip ${k===m?'active':''}" data-market="${k}">${k.toUpperCase()}</button>`).join('')}</div><div class="grid2"><div class="metric"><label>Last ${last.length} avg</label><strong>${last.length?avg.toFixed(1):'—'}</strong></div><div class="metric"><label>Last 5 results</label><strong>${vals.slice(0,5).join(' · ')||'—'}</strong></div></div>${gameLog.slice(0,10).map(g=>`<div class="list-item"><div><div class="player-name">${esc(dateLabel(g.date))}</div><div class="player-meta">${esc(g.opponent)}</div></div><strong>${statValue(g,m)??'—'}</strong></div>`).join('')||'<div class="empty">No readable game log rows were returned for this player.</div>'}</article>`;box.querySelectorAll('[data-market]').forEach(b=>b.onclick=()=>{activeMarket=b.dataset.market;renderPlayerDetail()})}
 let propSearchTimer=null,propSearchSequence=0;
