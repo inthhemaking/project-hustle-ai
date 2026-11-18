@@ -135,9 +135,9 @@ with tab_data:
         except Exception as e:
             st.error(str(e))
     elif "games" in st.session_state:
-        games = st.session_state["games"]
-        if games is None:
-        games = pd.DataFrame()
+            games = st.session_state["games"]
+            if games is None:
+            games = pd.DataFrame()
 
         game_count = len(games)
 
