@@ -136,7 +136,7 @@ with tab_data:
             st.error(str(e))
     elif "games" in st.session_state:
         games = st.session_state["games"]
-       st.info(f"{len(games):,} game-stat rows currently loaded in this session.")
+        st.info(f"{len(games):,} game-stat rows currently loaded in this session.")
         st.dataframe(games.head(15), use_container_width=True)
     else:
         st.info("No game logs loaded yet. Download the template from the Setup Guide tab.")
