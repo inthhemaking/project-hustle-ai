@@ -2,7 +2,6 @@
 const PROXY='https://hustle-ai-espn-proxy.workmanquintavius.workers.dev';
 const API=`${PROXY}/site/sports/basketball/nba`;
 const WEB=`${PROXY}/web/sports/basketball/nba`;
-const SEARCH=`${PROXY}/search`;
 const $=s=>document.querySelector(s);const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let tab='home',games=[],injuries=[],injuryFetched=null,playerResults=[],selectedPlayer=null,gameLog=[],activeMarket='points',activeSide='Over',lastAnalysis=null;
 const load=(k,d=[])=>{try{return JSON.parse(localStorage.getItem(k))??d}catch{return d}};const save=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
@@ -43,6 +42,64 @@ function extractPlayers(data){
  for(const group of data?.results||[])for(const item of group?.contents||[])add(item);
  return [...found.values()];
 }
+// ESPN's public search route is returning 403, so build a local searchable index
+// from the team roster route that was verified through the user's Cloudflare Worker.
+const NBA_TEAMS=['atl','bos','bkn','cha','chi','cle','dal','den','det','gs','hou','ind','lac','lal','mem','mia','mil','min','no','ny','okc','orl','phi','phx','por','sac','sa','tor','utah','wsh'];
+let playerIndexPromise=null;
+function normalizePlayerName(s){return String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').replace(/\s+/g,' ').trim()}
+function rosterPlayers(data,abbr){
+ const found=new Map();
+ const walk=(node, inheritedPosition='')=>{
+  if(!node||typeof node!=='object')return;
+  if(Array.isArray(node)){node.forEach(x=>walk(x,inheritedPosition));return;}
+  const athlete=node.athlete&&typeof node.athlete==='object'?node.athlete:node;
+  const rawId=athlete.id??athlete.athleteId??node.id;
+  const name=athlete.displayName||athlete.fullName||athlete.name||[athlete.firstName,athlete.lastName].filter(Boolean).join(' ');
+  const pos=athlete.position||node.position||{};
+  const position=typeof pos==='string'?pos:(pos.abbreviation||pos.displayName||inheritedPosition||'');
+  if(rawId&&name&&(/^\d+$/.test(String(rawId)))&&(athlete.jersey!==undefined||athlete.position||athlete.displayName||athlete.fullName||node.athlete)){
+   const id=String(rawId);
+   found.set(id,{id,name:String(name),team:athlete.team?.abbreviation||node.team?.abbreviation||abbr.toUpperCase(),position:String(position),jersey:athlete.jersey||''});
+  }
+  const nextPosition=typeof node.position==='string'?node.position:inheritedPosition;
+  for(const [key,value] of Object.entries(node)){
+   if(key==='athlete')continue;
+   if(value&&typeof value==='object')walk(value,nextPosition);
+  }
+ };
+ walk(data);
+ return [...found.values()];
+}
+async function loadPlayerIndex(force=false){
+ if(!force){
+  try{const cached=JSON.parse(localStorage.getItem('hustle_player_index')||'null');if(cached&&Date.now()-cached.savedAt<12*60*60*1000&&Array.isArray(cached.players)&&cached.players.length){return cached.players;}}catch{}
+  if(playerIndexPromise)return playerIndexPromise;
+ }
+ playerIndexPromise=(async()=>{
+  const all=[];let completed=0,failed=0;const concurrency=5;
+  for(let i=0;i<NBA_TEAMS.length;i+=concurrency){
+   const batch=NBA_TEAMS.slice(i,i+concurrency);
+   const results=await Promise.all(batch.map(async abbr=>{
+    try{return rosterPlayers(await get(`${API}/teams/${abbr}/roster`),abbr)}catch(e){failed++;return []}
+   }));
+   results.forEach(rows=>all.push(...rows));completed+=batch.length;
+  }
+  const unique=[...new Map(all.map(p=>[p.id,p])).values()];
+  if(unique.length<30)throw new Error(`Only ${unique.length} players loaded from NBA rosters (${failed} team feeds unavailable). Please retry.`);
+  unique.sort((a,b)=>a.name.localeCompare(b.name));
+  try{localStorage.setItem('hustle_player_index',JSON.stringify({savedAt:Date.now(),players:unique}));}catch{}
+  return unique;
+ })();
+ try{return await playerIndexPromise;}finally{playerIndexPromise=null;}
+}
+function findRosterPlayers(players,query,limit=12){
+ const q=normalizePlayerName(query);if(!q)return [];
+ const tokens=q.split(' ').filter(Boolean);
+ return players.map(p=>{const n=normalizePlayerName(p.name);let score=0;if(n===q)score=100;if(n.startsWith(q))score=Math.max(score,80);if(n.includes(q))score=Math.max(score,60);if(tokens.every(t=>n.split(' ').some(w=>w.startsWith(t))))score=Math.max(score,40);return {p,score};}).filter(x=>x.score>0).sort((a,b)=>b.score-a.score||a.p.name.localeCompare(b.p.name)).slice(0,limit).map(x=>x.p);
+}
+function playerResultMarkup(players,attribute='data-id'){
+ return players.map(p=>`<button class="card row player-pick" ${attribute}="${esc(p.id)}" style="width:100%;text-align:left;color:inherit"><div class="player-row"><div class="avatar">${esc(p.name.split(' ').map(x=>x[0]).slice(0,2).join(''))}</div><div><div class="player-name">${esc(p.name)}</div><div class="player-meta">${esc(p.team)} ${esc(p.position)}</div></div></div><span class="muted">›</span></button>`).join('');
+}
 function setTab(next){tab=next;document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));render()}
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
 $('#refreshTop').addEventListener('click',()=>{if(tab==='injuries')loadInjuries(true);else if(tab==='home')loadGames();else if(tab==='players')searchPlayers();else toast('Open a section to refresh its data')});
@@ -61,18 +118,18 @@ function injuryCard(i){const age=ageHours(i.date),stale=age!==null&&age>24,ageTe
 function injuryView(){const fresh=injuries.filter(i=>{const a=ageHours(i.date);return a===null||a<=24}),old=injuries.filter(i=>ageHours(i.date)>24);$('#view').innerHTML=`<div class="eyebrow">NBA AVAILABILITY</div><div class="hero" style="margin-top:7px"><div class="hero-row"><h1>INJURY CENTER</h1><span class="pill">ESPN FEED</span></div><p class="sub">Clean player reports. Report ages shown clearly. Older updates are separated.</p><div class="row" style="margin-top:14px"><div><div class="tiny">PLAYERS LISTED</div><div class="line-number">${injuries.length}</div></div><button class="btn" id="injRefresh">↻ Refresh now</button></div></div><div class="grid2"><div class="metric"><label>Within 24 hours / undated</label><strong class="green">${fresh.length}</strong></div><div class="metric"><label>Older than 24 hours</label><strong style="color:var(--amber)">${old.length}</strong></div></div><div class="notice">A recent fetch does not mean every report is new. Check each report's own date. ESPN may publish delayed updates.</div><div class="section-head"><h2>Current / undated reports</h2><span class="tiny">${fresh.length} players</span></div><div id="injuryList">${injuries.length?fresh.map(injuryCard).join(''):'No injury feed loaded yet.'}</div>${old.length?`<div class="section-head"><h2>Older reports</h2><span class="tiny">${old.length} need verification</span></div>${old.map(injuryCard).join('')}`:''}<div class="footnote">Source: ESPN public NBA injury endpoint · Last fetched ${injuryFetched?injuryFetched.toLocaleString():'not yet fetched'}. Reports without a source date are marked undated, not assumed current.</div>`;$('#injRefresh').onclick=()=>loadInjuries(true);if(!injuries.length)loadInjuries()}
 async function searchPlayers(){
  const q=$('#playerSearch')?.value?.trim();if(!q)return toast('Enter a player name');
- const list=$('#playerResults');list.innerHTML=loading('Searching NBA players');
+ const list=$('#playerResults');list.innerHTML=loading('Loading NBA roster index');
  try{
-  const d=await get(`${SEARCH}?region=us&lang=en&query=${encodeURIComponent(q)}&limit=50&type=player&sport=basketball&league=nba`);
-  playerResults=extractPlayers(d).slice(0,20);
-  list.innerHTML=playerResults.length?playerResults.map(p=>`<button class="card row player-pick" data-id="${esc(p.id)}" style="width:100%;text-align:left;color:inherit"><div class="player-row"><div class="avatar">${esc(p.name.split(' ').map(x=>x[0]).slice(0,2).join(''))}</div><div><div class="player-name">${esc(p.name)}</div><div class="player-meta">${esc(p.team)} ${esc(p.position)}</div></div></div><span class="muted">›</span></button>`).join(''):'<div class="empty">No player matches returned by ESPN. Try a shorter name or check proxy status.</div>';
+  const index=await loadPlayerIndex();
+  playerResults=findRosterPlayers(index,q,20);
+  list.innerHTML=playerResults.length?playerResultMarkup(playerResults):'<div class="empty">No NBA roster match. Check the spelling or try a shorter name.</div>';
   list.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>choosePlayer(b.dataset.id));
- }catch(e){list.innerHTML=`<div class="notice error">Player search unavailable: ${esc(e.message)}</div>`}
+ }catch(e){list.innerHTML=`<div class="notice error">NBA player directory unavailable: ${esc(e.message)}</div>`}
 }
 async function choosePlayer(id){selectedPlayer=playerResults.find(p=>p.id===id);if(!selectedPlayer)return;$('#selectedPlayer').innerHTML=loading(`Loading ${selectedPlayer.name}`);try{const season=nbaSeasonYear();const d=await get(`${WEB}/athletes/${id}/gamelog?season=${season}&seasontype=2`);gameLog=parseLog(d);renderPlayerDetail()}catch(e){$('#selectedPlayer').innerHTML=`<div class="notice error">Could not load game log: ${esc(e.message)}</div>`}}
 function parseLog(d){const out=[];const labels=d.labels||d.statistics?.labels||[];const names=d.names||[];const events=d.events||{};const entries=d.events||[];let rows=Array.isArray(entries)?entries:[];if(!rows.length&&Array.isArray(d.seasonTypes))for(const st of d.seasonTypes)for(const cat of st.categories||[])rows.push(...(cat.events||[]));for(const r of rows){const stats=r.stats||r.values||[];const obj={date:r.date||r.gameDate||r.event?.date||'',opponent:r.opponent?.abbreviation||r.opponent?.displayName||r.opponent||r.event?.name||'Game'};labels.forEach((l,i)=>obj[String(l).toLowerCase()]=Number(stats[i]));names.forEach((l,i)=>obj[String(l).toLowerCase()]=Number(stats[i]));if(Number.isFinite(obj.points)||Number.isFinite(obj.pts)||stats.length)out.push(obj)}return out.sort((a,b)=>new Date(b.date)-new Date(a.date))}
 const marketKeys={points:['points','pts'],rebounds:['rebounds','reb'],assists:['assists','ast'],threes:['three pointers made','3pm','3pt'],pra:['pra']};function statValue(row,market){for(const k of marketKeys[market]||[]){const key=Object.keys(row).find(x=>x===k||x.includes(k));if(key&&Number.isFinite(row[key]))return row[key]}if(market==='pra'){const p=statValue(row,'points'),r=statValue(row,'rebounds'),a=statValue(row,'assists');if([p,r,a].every(Number.isFinite))return p+r+a}return null}
-function playerView(){const picked=selectedPlayer?`<div id="selectedPlayer"></div>`:'<div id="selectedPlayer" class="empty">Search for a player to see their recent games and trend data.</div>';$('#view').innerHTML=`<div class="eyebrow">PLAYER LAB</div><h1>PLAYER RESEARCH</h1><p class="sub">Search ESPN's player index and inspect recent game logs.</p><div class="field"><label>PLAYER NAME</label><div class="row"><input id="playerSearch" class="input" placeholder="Search NBA player…" autocomplete="off"><button class="btn" id="searchBtn">Search</button></div></div><div id="playerResults"></div>${picked}<div class="footnote">Player game-log availability depends on ESPN's public endpoint and current season data.</div>`;$('#searchBtn').onclick=searchPlayers;$('#playerSearch').addEventListener('keydown',e=>{if(e.key==='Enter')searchPlayers()});if(selectedPlayer)renderPlayerDetail()}
+function playerView(){const picked=selectedPlayer?`<div id="selectedPlayer"></div>`:'<div id="selectedPlayer" class="empty">Search for a player to see their recent games and trend data.</div>';$('#view').innerHTML=`<div class="eyebrow">PLAYER LAB</div><h1>PLAYER RESEARCH</h1><p class="sub">Search the NBA roster directory and inspect recent game logs.</p><div class="field"><label>PLAYER NAME</label><div class="row"><input id="playerSearch" class="input" placeholder="Search NBA player…" autocomplete="off"><button class="btn" id="searchBtn">Search</button></div></div><div id="playerResults"></div>${picked}<div class="footnote">Player game-log availability depends on ESPN's public endpoint and current season data.</div>`;$('#searchBtn').onclick=searchPlayers;$('#playerSearch').addEventListener('keydown',e=>{if(e.key==='Enter')searchPlayers()});if(selectedPlayer)renderPlayerDetail()}
 function renderPlayerDetail(){const box=$('#selectedPlayer');if(!box)return;const m=activeMarket,vals=gameLog.map(g=>statValue(g,m)).filter(Number.isFinite),last=vals.slice(0,10),avg=last.length?last.reduce((a,b)=>a+b,0)/last.length:0;box.innerHTML=`<article class="card"><div class="player-row"><div class="avatar">${esc(selectedPlayer.name.split(' ').map(x=>x[0]).slice(0,2).join(''))}</div><div><div class="player-name">${esc(selectedPlayer.name)}</div><div class="player-meta">${esc(selectedPlayer.team)} · ${esc(selectedPlayer.position)}</div></div></div><div class="section-head"><h2>Recent performance</h2></div><div class="chips">${Object.keys(marketKeys).map(k=>`<button class="chip ${k===m?'active':''}" data-market="${k}">${k.toUpperCase()}</button>`).join('')}</div><div class="grid2"><div class="metric"><label>Last ${last.length} avg</label><strong>${last.length?avg.toFixed(1):'—'}</strong></div><div class="metric"><label>Last 5 results</label><strong>${vals.slice(0,5).join(' · ')||'—'}</strong></div></div>${gameLog.slice(0,10).map(g=>`<div class="list-item"><div><div class="player-name">${esc(dateLabel(g.date))}</div><div class="player-meta">${esc(g.opponent)}</div></div><strong>${statValue(g,m)??'—'}</strong></div>`).join('')||'<div class="empty">No readable game log rows were returned for this player.</div>'}</article>`;box.querySelectorAll('[data-market]').forEach(b=>b.onclick=()=>{activeMarket=b.dataset.market;renderPlayerDetail()})}
 let propSearchTimer=null,propSearchSequence=0;
 function propView(){
@@ -81,20 +138,20 @@ function propView(){
  const input=$('#propPlayer');
  input.addEventListener('input',()=>{
   clearTimeout(propSearchTimer);const q=input.value.trim();const seq=++propSearchSequence;
-  if(q.length<2){$('#propSearchResults').innerHTML='';return}
+  selectedPlayer=null;
+  if(q.length<2){$('#propSearchResults').innerHTML='';return;}
   propSearchTimer=setTimeout(async()=>{
-   const box=$('#propSearchResults');if(!box)return;box.innerHTML=loading('Searching NBA players');
+   const box=$('#propSearchResults');if(!box)return;box.innerHTML=loading('Loading NBA player directory');
    try{
-    const d=await get(`${SEARCH}?region=us&lang=en&query=${encodeURIComponent(q)}&limit=30&type=player&sport=basketball&league=nba`);
-    if(seq!==propSearchSequence)return;
-    const hits=extractPlayers(d).slice(0,8);
-    box.innerHTML=hits.length?hits.map(x=>`<button class="card row" data-prop-id="${esc(x.id)}" style="width:100%;color:inherit;text-align:left"><span><strong>${esc(x.name)}</strong> <small class="muted">${esc(x.team)}</small></span><span>›</span></button>`).join(''):'<div class="empty">No NBA players found. Try a shorter name.</div>';
+    const index=await loadPlayerIndex();if(seq!==propSearchSequence)return;
+    const hits=findRosterPlayers(index,q,8);
+    box.innerHTML=hits.length?hits.map(x=>`<button class="card row" data-prop-id="${esc(x.id)}" style="width:100%;color:inherit;text-align:left"><span><strong>${esc(x.name)}</strong> <small class="muted">${esc(x.team)} ${esc(x.position)}</small></span><span>›</span></button>`).join(''):'<div class="empty">No NBA roster match. Try another spelling.</div>';
     box.querySelectorAll('[data-prop-id]').forEach(b=>b.onclick=()=>{
      const chosen=hits.find(x=>x.id===b.dataset.propId);if(!chosen)return;
-     selectedPlayer=chosen;input.value=chosen.name;box.innerHTML=`<div class="pill">${esc(chosen.name)} selected</div>`;
+     selectedPlayer=chosen;input.value=chosen.name;box.innerHTML=`<div class="pill">${esc(chosen.name)} · ${esc(chosen.team)} selected</div>`;
     });
-   }catch(e){if(seq===propSearchSequence)box.innerHTML=`<div class="notice error">Player search unavailable: ${esc(e.message)}</div>`}
-  },300);
+   }catch(e){if(seq===propSearchSequence)box.innerHTML=`<div class="notice error">NBA player directory unavailable: ${esc(e.message)}</div>`}
+  },250);
  });
  document.querySelectorAll('[data-prop-market]').forEach(b=>b.onclick=()=>{activeMarket=b.dataset.propMarket;propView()});
  document.querySelectorAll('[data-side]').forEach(b=>b.onclick=()=>{activeSide=b.dataset.side;document.querySelectorAll('[data-side]').forEach(x=>x.classList.toggle('selected',x.dataset.side===activeSide))});

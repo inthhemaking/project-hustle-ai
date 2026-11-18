@@ -1,38 +1,30 @@
-HUSTLE AI — CLOUDFLARE PROXY CONNECTED UPDATE
+HUSTLE AI — ROSTER SEARCH FIX
 
-WHAT CHANGED
-- All ESPN requests now use your deployed Cloudflare Worker:
-  https://hustle-ai-espn-proxy.workmanquintavius.workers.dev
-- Player Research and Prop Analyzer share one more tolerant ESPN player-result parser.
-- Prop player search has a short debounce, loading feedback, and visible errors.
-- Game-log requests use the NBA season end year (e.g. 2027 during Nov 2026).
-- Request timeouts and clearer proxy/API errors were added.
-- Service worker cache was bumped so the new JavaScript can replace the older cached version.
+This update replaces the ESPN search endpoint (which is returning HTTP 403) with a searchable player directory built from ESPN's NBA team roster endpoints through your Cloudflare Worker.
 
-PUBLISH THE UPDATE
-1. Open your GitHub repository: https://github.com/inthhemaking/project-hustle-ai
-2. Upload/replace the files in this package at the repository root:
-   index.html, app.js, styles.css, sw.js, manifest.webmanifest, and the icons/ folder.
-3. Do NOT replace app.py or requirements.txt.
-4. Commit the changes to the main branch.
-5. Wait for GitHub Pages to publish the update.
-6. On your iPhone, open the app in Safari and refresh it. If it still shows the old version, close the installed HUSTLE AI app completely, open the GitHub Pages URL in Safari, refresh, then Add to Home Screen/open again if needed.
+FILES
+- index.html
+- app.js
+- styles.css
+- sw.js
+- manifest.webmanifest
+- icons/
 
-PROXY STATUS
-The Worker was confirmed by the user to return ESPN NBA team JSON from:
-https://hustle-ai-espn-proxy.workmanquintavius.workers.dev/site/sports/basketball/nba/teams
+DEPLOY
+1. Open your GitHub repository: inthhemaking/project-hustle-ai
+2. Upload/replace the files above in the repository root (keep the icons folder).
+3. Commit the changes to main.
+4. Wait for GitHub Pages to finish publishing.
+5. On iPhone Safari, open the HUSTLE AI app and refresh. If it still shows old code, close the installed app, open the site in Safari, reload once, then Add to Home Screen app again if needed.
 
-PLAYER SEARCH TESTS AFTER PUBLISH
-Search for:
-- LeBron James
-- Stephen Curry
-- Nikola Jokic
+PLAYER SEARCH
+- The first search builds an NBA roster index by requesting each team's /roster route through the Worker. This can take several seconds.
+- The index is cached on the device for 12 hours. Subsequent searches are local and fast.
+- Both Player Research and Prop Analyzer use the same roster index.
+- If one or more team roster endpoints fail, the index can still be built if at least 30 players were returned. A very incomplete index shows an error instead of pretending there are no matches.
 
-Then select each result. Confirm the game log loads. Prop Analyzer should use the same search and selected player.
+CLOUDFLARE WORKER
+Keep the existing Worker URL configured in app.js. Do not replace the Worker code for this update.
 
 IMPORTANT
-- The Cloudflare Worker is already deployed separately. Do not paste the PWA JavaScript into Cloudflare.
-- This package does not change the Cloudflare Worker code.
-- ESPN's public endpoints and response shapes can change. The team endpoint success confirms the proxy route works for that endpoint, but player search and game logs still require live end-to-end testing after publishing.
-- Picks and parlays remain local to this iPhone/browser and are not cloud-synced.
-- Keep the old Streamlit app until the PWA is tested successfully.
+The user verified that the Worker can return NBA team data and the Lakers roster endpoint returns JSON player data. This update has not been deployed to GitHub Pages or live-tested on the user's iPhone yet. ESPN game-log availability remains dependent on the separate ESPN gamelog endpoint.
