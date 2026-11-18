@@ -195,6 +195,10 @@ def _stat_number(value: Any) -> float | None:
     text = str(value).strip()
     if not text or text in {"--", "-", "—"}:
         return None
+    # ESPN sometimes supplies minutes as MM:SS; convert to decimal minutes.
+    if re.fullmatch(r"\d{1,3}:\d{2}", text):
+        minutes, seconds = text.split(":", 1)
+        return float(minutes) + float(seconds) / 60.0
     # ESPN shooting stats are often represented as made-attempted; props need made.
     if re.fullmatch(r"\d+\s*[-/]\s*\d+", text):
         text = re.split(r"[-/]", text)[0].strip()
@@ -205,53 +209,87 @@ def _stat_number(value: Any) -> float | None:
         return None
 
 def parse_gamelog(data: dict) -> pd.DataFrame:
-    labels = data.get("names") or data.get("labels") or []
-    records: list[dict] = []
-    events = data.get("events", [])
-    if isinstance(events, dict):
-        events = list(events.values())
-    for event in events if isinstance(events, list) else []:
-        if not isinstance(event, dict):
-            continue
-        raw_stats = event.get("stats") or event.get("statistics") or []
-        row: dict[str, Any] = {"Date": event.get("date") or event.get("eventDate"), "Result": event.get("gameResult") or event.get("result", ""), "Home/Away": event.get("homeAway", "")}
-        opponent = event.get("opponent") or event.get("opponentDisplayName") or ""
+    """Normalize ESPN Web API v3 game logs.
+
+    ESPN's current response stores game metadata in an ``events`` dictionary,
+    while the actual stat rows are nested under
+    ``seasonTypes[].categories[].events[]``. Older/alternate responses may
+    still provide a flat events list, so both shapes are supported.
+    """
+    labels = data.get("names") or data.get("labels") or data.get("displayNames") or []
+    metadata = data.get("events", {})
+    records: list[dict[str, Any]] = []
+
+    def metadata_for(event_id: Any) -> dict:
+        if isinstance(metadata, dict):
+            item = metadata.get(str(event_id), {})
+            return item if isinstance(item, dict) else {}
+        if isinstance(metadata, list):
+            return next((x for x in metadata if isinstance(x, dict) and str(x.get("id")) == str(event_id)), {})
+        return {}
+
+    def append_stat_event(stat_event: dict):
+        raw_stats = stat_event.get("stats") or stat_event.get("statistics") or []
+        event_id = stat_event.get("eventId") or stat_event.get("id")
+        meta = metadata_for(event_id)
+        # Some variants put all event metadata directly on the stat row.
+        merged = {**meta, **stat_event}
+        row: dict[str, Any] = {
+            "Date": merged.get("date") or merged.get("gameDate") or merged.get("eventDate"),
+            "Result": merged.get("gameResult") or merged.get("result", ""),
+            "Home/Away": merged.get("homeAway") or merged.get("home_away", ""),
+        }
+        opponent = merged.get("opponent") or merged.get("opponentDisplayName") or merged.get("opponent_display_name") or ""
         row["Opponent"] = (opponent.get("displayName") or opponent.get("abbreviation") or opponent.get("name", "")) if isinstance(opponent, dict) else opponent
         if isinstance(raw_stats, dict):
             row.update(raw_stats)
         elif isinstance(raw_stats, list):
-            # ESPN game-log event arrays commonly omit DATE/OPP/RESULT, so align
-            # a shorter stats array with the trailing stat names, not index zero.
-            keys = labels[-len(raw_stats):] if labels and len(raw_stats) < len(labels) else labels
+            # ESPN responses are inconsistent: some label arrays contain only
+            # stat fields (MIN, FG, 3PT...), while others also include the
+            # metadata fields DATE, OPP and RESULT. The stats array excludes
+            # those three metadata values, so align from the right when needed.
+            stat_labels = labels
+            if len(labels) - len(raw_stats) in (1, 2, 3):
+                stat_labels = labels[len(labels) - len(raw_stats):]
             for idx, value in enumerate(raw_stats):
-                key = keys[idx] if idx < len(keys) else f"stat_{idx}"
+                key = stat_labels[idx] if idx < len(stat_labels) else f"stat_{idx}"
                 row[str(key)] = value
-        records.append(row)
-    # Alternate nested event format used by some ESPN responses.
+        if row.get("Date") or any(k not in {"Date", "Result", "Home/Away", "Opponent"} for k in row):
+            records.append(row)
+
+    # Current ESPN Web API v3 layout: seasonTypes -> categories -> events.
+    season_types = data.get("seasonTypes", [])
+    if isinstance(season_types, list):
+        for season_type in season_types:
+            if not isinstance(season_type, dict):
+                continue
+            for category in season_type.get("categories", []) or []:
+                if not isinstance(category, dict):
+                    continue
+                for stat_event in category.get("events", []) or []:
+                    if isinstance(stat_event, dict):
+                        append_stat_event(stat_event)
+
+    # Older/alternate layout: events is a flat list of rows with inline stats.
     if not records:
-        for node in walk_dicts(data):
-            evs = node.get("events")
-            if isinstance(evs, list) and evs is not events:
-                for event in evs:
-                    if isinstance(event, dict) and (event.get("stats") or event.get("statistics")):
-                        records.append(event)
+        flat_events = metadata if isinstance(metadata, list) else []
+        for event in flat_events:
+            if isinstance(event, dict) and (event.get("stats") or event.get("statistics")):
+                append_stat_event(event)
+
     if not records:
         return pd.DataFrame()
+
     df = pd.DataFrame(records)
-    if "Date" not in df.columns:
-        date_col = next((c for c in df.columns if str(c).lower() in {"date", "eventdate"}), None)
-        if date_col:
-            df["Date"] = df[date_col]
-    df["Date"] = pd.to_datetime(df.get("Date"), errors="coerce", utc=True)
-    if "Opponent" not in df:
-        df["Opponent"] = ""
-    if "Result" not in df:
-        df["Result"] = ""
-    # Normalize ESPN names/labels to stable market columns.
+    # Normalize ESPN labels/names to stable market columns.
     aliases = {
-        "points": {"points", "pts"}, "rebounds": {"rebounds", "reb", "totalrebounds"},
-        "assists": {"assists", "ast"}, "threepointsmade": {"threepointsmade", "threepointersmade", "3pm", "3pt", "threepointfieldgoalsmade"},
-        "steals": {"steals", "stl"}, "blocks": {"blocks", "blk"}, "minutes": {"minutes", "min"}
+        "points": {"points", "pts"},
+        "rebounds": {"rebounds", "reb", "totalrebounds"},
+        "assists": {"assists", "ast"},
+        "threepointsmade": {"threepointsmade", "threepointersmade", "3pm", "3pt", "threepointfieldgoalsmade", "threepointfieldgoalsmade"},
+        "steals": {"steals", "stl"},
+        "blocks": {"blocks", "blk"},
+        "minutes": {"minutes", "min"},
     }
     rename = {}
     for col in df.columns:
@@ -261,9 +299,14 @@ def parse_gamelog(data: dict) -> pd.DataFrame:
                 rename[col] = target
                 break
     df = df.rename(columns=rename)
+    df["Date"] = pd.to_datetime(df.get("Date"), errors="coerce", utc=True)
     for col in df.columns:
         if col not in {"Date", "Opponent", "Result", "Home/Away"}:
             df[col] = df[col].map(_stat_number)
+    if "Opponent" not in df:
+        df["Opponent"] = ""
+    if "Result" not in df:
+        df["Result"] = ""
     df = df.dropna(subset=["Date"]).sort_values("Date", ascending=False).drop_duplicates(subset=["Date", "Opponent"], keep="first").reset_index(drop=True)
     return df
 
