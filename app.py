@@ -21,13 +21,71 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; ProjectHustleAI/2.0)"}
 st.set_page_config(page_title="Project HUSTLE AI", page_icon="🏀", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
-.stApp{background:#080d16;color:#edf2fa}.block-container{padding-top:1rem;max-width:1400px}
-.hero{padding:1.3rem 1.4rem;border:1px solid #25344b;border-radius:18px;background:linear-gradient(115deg,#14243a,#101722);margin-bottom:1rem}
-.hero h1{letter-spacing:.07em;margin:0;font-size:2rem}.hero p{color:#aab9cc;margin:.35rem 0 0}
-[data-testid="stMetric"]{background:#111c2b;border:1px solid #25344b;padding:12px;border-radius:13px}
-[data-testid="stDataFrame"]{border:1px solid #25344b;border-radius:12px}
-.stButton>button{border-radius:10px;min-height:2.6rem}
-@media(max-width:700px){.block-container{padding-left:.8rem;padding-right:.8rem}.hero h1{font-size:1.5rem}}
+:root {
+  --hustle-bg: #080d16;
+  --hustle-panel: #111c2b;
+  --hustle-panel-2: #17263a;
+  --hustle-border: #2a3b53;
+  --hustle-text: #f3f6fb;
+  --hustle-muted: #b7c4d6;
+  --hustle-accent: #6ea8ff;
+}
+.stApp { background:var(--hustle-bg); color:var(--hustle-text); }
+.block-container { padding:1.15rem 1.35rem 3rem; max-width:1320px; }
+.hero {
+  padding:1.45rem 1.55rem; border:1px solid var(--hustle-border);
+  border-radius:20px; background:linear-gradient(120deg,#172d49 0%,#101a2a 72%);
+  margin:0 0 1.15rem; box-shadow:0 10px 28px rgba(0,0,0,.18);
+}
+.hero h1 { letter-spacing:.055em; margin:0; font-size:2.05rem; line-height:1.15; }
+.hero p { color:#c1cee0; margin:.5rem 0 0; font-size:1rem; }
+h1,h2,h3 { letter-spacing:-.02em; }
+h2 { margin-top:.5rem; }
+[data-testid="stMetric"] {
+  background:var(--hustle-panel); border:1px solid var(--hustle-border);
+  padding:14px 15px; border-radius:15px; min-height:104px;
+}
+[data-testid="stMetricLabel"] { color:var(--hustle-muted); font-size:.88rem; }
+[data-testid="stMetricValue"] { color:var(--hustle-text); font-size:1.65rem; }
+[data-testid="stDataFrame"], [data-testid="stTable"] {
+  border:1px solid var(--hustle-border); border-radius:13px; overflow:hidden;
+}
+[data-testid="stDataFrame"] { width:100%; }
+[data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
+[data-testid="stSelectbox"] [role="combobox"], [data-testid="stDateInput"] input {
+  min-height:2.9rem; border-radius:11px;
+}
+[data-testid="stTextInput"] label, [data-testid="stNumberInput"] label,
+[data-testid="stSelectbox"] label, [data-testid="stRadio"] label,
+[data-testid="stDateInput"] label { color:#d8e2ef; font-weight:600; }
+.stButton > button, [data-testid="stDownloadButton"] button {
+  border-radius:11px; min-height:2.85rem; font-weight:650;
+  border:1px solid #42618a; transition:filter .15s ease, transform .15s ease;
+}
+.stButton > button:hover, [data-testid="stDownloadButton"] button:hover { filter:brightness(1.12); }
+[data-testid="stAlert"] { border-radius:12px; }
+[data-testid="stExpander"] { border:1px solid var(--hustle-border); border-radius:12px; }
+hr { border-color:var(--hustle-border); }
+.caption, [data-testid="stCaptionContainer"] { color:var(--hustle-muted); }
+/* Make Streamlit's multi-column metric and form rows wrap cleanly on phones. */
+@media (max-width: 760px) {
+  .block-container { padding:.65rem .7rem 2.2rem; }
+  .hero { padding:1.05rem 1rem; border-radius:15px; margin-bottom:.85rem; }
+  .hero h1 { font-size:1.48rem; }
+  .hero p { font-size:.9rem; line-height:1.4; }
+  h2 { font-size:1.35rem !important; }
+  h3 { font-size:1.12rem !important; }
+  [data-testid="stHorizontalBlock"] { flex-wrap:wrap; gap:.55rem; }
+  [data-testid="column"] { min-width:100% !important; flex:1 1 100% !important; }
+  [data-testid="stMetric"] { min-height:0; padding:11px 12px; }
+  [data-testid="stMetricValue"] { font-size:1.4rem; }
+  .stButton > button, [data-testid="stDownloadButton"] button { width:100%; }
+  [data-testid="stDataFrame"] { max-width:100%; overflow-x:auto; }
+  [data-testid="stDataFrame"] iframe { max-width:100%; }
+  [data-testid="stSelectbox"], [data-testid="stTextInput"],
+  [data-testid="stNumberInput"], [data-testid="stDateInput"] { width:100%; }
+  [data-testid="stRadio"] > div { flex-wrap:wrap; gap:.35rem; }
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -344,9 +402,51 @@ def player_picker(key: str):
 
 # ---------------- Pick tracker database ----------------
 def init_db():
+    """Create tracker tables and safely migrate older SQLite schemas in place.
+
+    Existing picks are preserved. Each missing column is added only when needed,
+    so redeployments do not require deleting the user's database.
+    """
     with sqlite3.connect(DB_PATH) as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS picks (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, player TEXT, market TEXT, line REAL, side TEXT, opponent TEXT, result TEXT DEFAULT 'Pending', notes TEXT)")
-        conn.execute("CREATE TABLE IF NOT EXISTS parlays (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT DEFAULT CURRENT_TIMESTAMP, name TEXT, legs_json TEXT, result TEXT DEFAULT 'Pending')")
+        conn.execute("""CREATE TABLE IF NOT EXISTS picks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            player TEXT, market TEXT, line REAL, side TEXT,
+            opponent TEXT, result TEXT DEFAULT 'Pending', notes TEXT
+        )""")
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(picks)").fetchall()}
+        migrations = {
+            "created_at": "TEXT",
+            "player": "TEXT",
+            "market": "TEXT",
+            "line": "REAL",
+            "side": "TEXT",
+            "opponent": "TEXT",
+            "result": "TEXT DEFAULT 'Pending'",
+            "notes": "TEXT",
+        }
+        for column, declaration in migrations.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE picks ADD COLUMN {column} {declaration}")
+        if "created_at" not in existing:
+            conn.execute("UPDATE picks SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL")
+        conn.execute("""CREATE TABLE IF NOT EXISTS parlays (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            name TEXT, legs_json TEXT, result TEXT DEFAULT 'Pending'
+        )""")
+        parlay_columns = {row[1] for row in conn.execute("PRAGMA table_info(parlays)").fetchall()}
+        parlay_migrations = {
+            "created_at": "TEXT",
+            "name": "TEXT",
+            "legs_json": "TEXT",
+            "result": "TEXT DEFAULT 'Pending'",
+        }
+        for column, declaration in parlay_migrations.items():
+            if column not in parlay_columns:
+                conn.execute(f"ALTER TABLE parlays ADD COLUMN {column} {declaration}")
+        if "created_at" not in parlay_columns:
+            conn.execute("UPDATE parlays SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL")
         conn.commit()
 
 def load_picks() -> pd.DataFrame:
@@ -383,8 +483,8 @@ def set_parlay_result(parlay_id: int, result: str):
 # ---------------- Main interface ----------------
 st.markdown('<div class="hero"><h1>PROJECT HUSTLE AI</h1><p>Research the numbers. Understand the matchup. Track your process.</p></div>', unsafe_allow_html=True)
 sections = ["Dashboard", "Player Research", "Injury Center", "Prop Analyzer", "Matchup Research", "Pick Tracker & Parlays"]
-section = st.selectbox("Navigate HUSTLE AI", sections, key="main_navigation")
-st.caption("NBA analytics workspace • ESPN public data • No paid API key • Data availability can vary")
+section = st.selectbox("Where do you want to go?", sections, key="main_navigation", help="Choose a workspace. On phones, this menu is easier to use than a row of tabs.")
+st.caption("NBA analytics workspace  ·  Free ESPN data  ·  No paid API key  ·  Data availability can vary")
 
 if section == "Dashboard":
     st.subheader("NBA scoreboard")
