@@ -54,62 +54,101 @@ def get_injuries() -> dict:
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_teams() -> list[dict]:
-    data = fetch_json(f"{BASE}/teams")
+    """Normalize ESPN's nested teams response into a unique team list."""
+    data = fetch_json(f"{BASE}/teams", {"limit": 100})
     found: dict[str, dict] = {}
     for node in walk_dicts(data):
-        # League teams endpoint may wrap each team as {"team": {...}}.
+        # The endpoint commonly wraps each team in a {"team": {...}} object.
         team = node.get("team") if isinstance(node.get("team"), dict) else node
-        tid = team.get("id") if isinstance(team, dict) else None
-        if tid and (team.get("abbreviation") or team.get("displayName")):
-            found[str(tid)] = {"id": str(tid), "name": team.get("displayName") or team.get("name") or "", "abbr": team.get("abbreviation") or ""}
-    return list(found.values())
+        if not isinstance(team, dict):
+            continue
+        tid = team.get("id")
+        abbr = team.get("abbreviation") or team.get("abbr")
+        name = team.get("displayName") or team.get("name")
+        if tid and abbr and name:
+            found[str(tid)] = {"id": str(tid), "name": name, "abbr": abbr}
+    return sorted(found.values(), key=lambda item: item["abbr"])
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_roster(team_id: str) -> list[dict]:
+    """Read flat or grouped ESPN roster payloads without assuming one schema."""
     data = fetch_json(f"{BASE}/teams/{team_id}/roster")
-    roster: list[dict] = []
-    for item in data.get("athletes", []):
-        candidates = item.get("items", []) if isinstance(item, dict) and "items" in item else [item]
-        for athlete in candidates:
-            if not isinstance(athlete, dict):
-                continue
-            pid = athlete.get("id") or athlete.get("uid")
-            name = athlete.get("displayName") or athlete.get("fullName") or athlete.get("name")
-            if pid and name:
-                pos = athlete.get("position") or {}
-                roster.append({"id": str(pid).split("/")[-1], "name": name, "team": data.get("team", {}).get("abbreviation", ""), "position": pos.get("abbreviation", "") if isinstance(pos, dict) else str(pos)})
-    return roster
+    roster: dict[str, dict] = {}
+    team_obj = data.get("team") if isinstance(data.get("team"), dict) else {}
+    team_abbr = team_obj.get("abbreviation", "")
+    for athlete in walk_dicts(data):
+        pid = athlete.get("id")
+        name = athlete.get("displayName") or athlete.get("fullName") or athlete.get("name")
+        # Require a plausible athlete object; this avoids indexing team IDs.
+        if not pid or not name or not str(pid).isdigit():
+            continue
+        pos = athlete.get("position") or {}
+        position = pos.get("abbreviation", "") if isinstance(pos, dict) else str(pos)
+        roster[str(pid)] = {"id": str(pid), "name": name, "team": team_abbr, "position": position}
+    return list(roster.values())
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=900, show_spinner=False)
 def search_players(query: str) -> list[dict]:
-    """Search ESPN's public search endpoint, then fall back to current team rosters."""
+    """Search ESPN's player index, then try every team roster independently.
+
+    ESPN's search endpoint requires type=player for reliable player-only results.
+    A failed roster request for one franchise must not stop the other teams.
+    """
     q = query.strip().lower()
+    if not q:
+        return []
     found: dict[str, dict] = {}
-    try:
-        data = fetch_json(SEARCH_BASE, {"region": "us", "lang": "en", "query": query, "limit": 30, "sport": "basketball", "league": "nba"})
-        for node in walk_dicts(data):
-            ident = node.get("id") or node.get("uid")
-            name = node.get("displayName") or node.get("fullName") or node.get("name")
-            typ = str(node.get("type", "")).lower()
-            if ident and name and ("athlete" in typ or "player" in typ or node.get("position") is not None):
-                pid = str(ident).split("/")[-1]
-                if pid.isdigit():
+    search_errors: list[str] = []
+    # ESPN search has changed its nesting and filters over time. Try explicit
+    # player typing first, then a sport-scoped variant; normalize nested results.
+    search_variants = [
+        {"region": "us", "lang": "en", "query": query, "limit": 50, "type": "player", "sport": "basketball", "league": "nba"},
+        {"region": "us", "lang": "en", "query": query, "limit": 50, "type": "player", "sport": "basketball"},
+    ]
+    for params in search_variants:
+        try:
+            data = fetch_json(SEARCH_BASE, params)
+            for node in walk_dicts(data):
+                ident = node.get("id") or node.get("uid") or node.get("guid")
+                name = node.get("displayName") or node.get("fullName") or node.get("name")
+                typ = str(node.get("type", "")).lower()
+                # ESPN UIDs can be URI-like or s:40~l:46~a:1234.
+                pid = str(ident or "").rstrip("/").split("/")[-1]
+                if "~a:" in pid:
+                    pid = pid.rsplit("~a:", 1)[-1]
+                if ident and name and pid.isdigit() and ("athlete" in typ or "player" in typ or node.get("position") is not None):
                     team = node.get("team") or {}
                     pos = node.get("position") or {}
-                    found[pid] = {"id": pid, "name": name, "team": team.get("abbreviation", "") if isinstance(team, dict) else "", "position": pos.get("abbreviation", "") if isinstance(pos, dict) else ""}
-    except Exception:
-        pass
-    # ESPN search results have changed shape in the past. Roster lookup is the fallback.
+                    found[pid] = {
+                        "id": pid,
+                        "name": name,
+                        "team": team.get("abbreviation", "") if isinstance(team, dict) else "",
+                        "position": pos.get("abbreviation", "") if isinstance(pos, dict) else "",
+                    }
+            if found:
+                break
+        except Exception as exc:
+            search_errors.append(str(exc)[:180])
+
+    # Roster fallback: isolate failures per team so one unavailable roster
+    # cannot abort the entire league search.
     if not found:
         try:
-            for team in get_teams():
+            teams = get_teams()
+        except Exception as exc:
+            teams = []
+            search_errors.append(f"Teams feed: {str(exc)[:160]}")
+        for team in teams:
+            try:
                 for player in get_roster(team["id"]):
                     if q in player["name"].lower():
                         player["team"] = player.get("team") or team["abbr"]
                         found[player["id"]] = player
-        except Exception:
-            pass
-    return sorted(found.values(), key=lambda p: p["name"].lower())[:30]
+            except Exception as exc:
+                # Continue searching other franchises if one roster fails.
+                search_errors.append(f"{team.get('abbr', team['id'])}: {str(exc)[:100]}")
+    results = sorted(found.values(), key=lambda player: player["name"].lower())
+    return results[:30]
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_athlete_overview(player_id: str) -> dict:
@@ -252,7 +291,9 @@ def player_picker(key: str):
     with st.spinner("Searching ESPN player directory..."):
         players = search_players(query.strip())
     if not players:
-        st.warning("No player results returned. ESPN search and roster feeds may be temporarily unavailable. Try the full player name or retry shortly.")
+        st.warning("No player results returned by ESPN. The search now tries ESPN's player-only search and team rosters; if it still fails, the public feed may be blocking or changing its response.")
+        with st.expander("Player search troubleshooting"):
+            st.write("Try a shorter search such as Curry, Durant, or Giannis. If all searches fail, ESPN's public player directory is currently unavailable to this app.")
         return None
     labels = [f"{p['name']}" + (f" — {p['team']}" if p.get("team") else "") for p in players]
     selected = st.selectbox("Select player", range(len(players)), format_func=lambda i: labels[i], key=f"player_select_{key}")
