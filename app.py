@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 import re
 import sqlite3
@@ -57,6 +58,12 @@ hr {border-color:var(--h-border)}
 .hustle-stat strong {display:block;color:#f4f7fc;font-size:1.08rem;line-height:1.2}
 .hustle-stat span {display:block;color:#9eacc1;font-size:.65rem;letter-spacing:.07em;margin-top:4px}
 .hustle-result {font-weight:800;color:var(--h-green)}
+.hustle-box-player {background:linear-gradient(145deg,#142238,#101a29);border:1px solid #2b405c;border-radius:13px;padding:11px 12px;margin:8px 0}
+.hustle-box-player-name {font-weight:800;color:#f4f7fc;font-size:.95rem;margin-bottom:9px}
+.hustle-box-stats {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.hustle-box-stat {background:#0b1523;border-radius:8px;padding:7px 4px;text-align:center;min-width:0}
+.hustle-box-stat b {display:block;color:#f4f7fc;font-size:.9rem;overflow-wrap:anywhere}
+.hustle-box-stat span {display:block;color:#9eacc1;font-size:.62rem;letter-spacing:.04em;margin-top:3px}
 .hustle-nav-label {color:#55e6a5;font-size:.72rem;font-weight:800;letter-spacing:.14em;margin:.35rem 0}
 @media(max-width:760px) {
  .block-container {padding:.55rem .65rem 2.3rem}
@@ -79,6 +86,8 @@ hr {border-color:var(--h-border)}
  .hustle-stat {padding:8px 3px}
  .hustle-stat strong {font-size:1rem}
  .hustle-stat span {font-size:.58rem;letter-spacing:.03em}
+ .hustle-box-stats {grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+ .hustle-box-player {padding:10px}
 }
 @media(max-width:390px) {
  [data-testid="column"] {min-width:100% !important;flex:1 1 100% !important}
@@ -419,6 +428,93 @@ def player_picker(key: str):
     selected = st.selectbox("Select player", range(len(players)), format_func=lambda i: labels[i], key=f"player_select_{key}")
     return players[selected]
 
+
+
+def render_game_summary(summary: dict):
+    """Render ESPN game summary as readable matchup cards and box-score tables.
+
+    Never expose the raw ESPN JSON payload in the public interface.
+    """
+    header = summary.get("header") or {}
+    competition = (header.get("competitions") or [{}])[0]
+    competitors = competition.get("competitors") or []
+    if competitors:
+        st.markdown("#### Final score / game status")
+        score_cols = st.columns(len(competitors))
+        for col, team in zip(score_cols, competitors):
+            team_obj = team.get("team") or {}
+            col.metric(team_obj.get("displayName") or team_obj.get("abbreviation") or "Team", team.get("score", "—"), "Winner" if team.get("winner") else None)
+
+    leaders = summary.get("leaders") or []
+    leader_cards = []
+    for team_group in leaders:
+        team = team_group.get("team") or {}
+        team_name = team.get("displayName") or team.get("abbreviation") or "Team"
+        for category in team_group.get("leaders") or []:
+            category_name = category.get("displayName") or category.get("name") or "Leader"
+            top = (category.get("leaders") or [{}])[0]
+            athlete = top.get("athlete") or {}
+            athlete_name = athlete.get("displayName") or athlete.get("fullName") or "Player"
+            value = top.get("displayValue") or top.get("value") or "—"
+            leader_cards.append((team_name, category_name, athlete_name, value))
+
+    if leader_cards:
+        st.markdown("#### Game leaders")
+        for start in range(0, len(leader_cards), 2):
+            cols = st.columns(2)
+            for col, item in zip(cols, leader_cards[start:start + 2]):
+                team_name, category_name, athlete_name, value = item
+                with col:
+                    st.markdown(f'<div class="hustle-game"><div class="hustle-game-top"><span>{team_name}</span><span>{category_name}</span></div><strong style="font-size:1rem;color:#f4f7fc">{athlete_name}</strong><div style="font-size:1.35rem;font-weight:800;color:#55e6a5;margin-top:.3rem">{value}</div></div>', unsafe_allow_html=True)
+
+    boxscore = summary.get("boxscore") or {}
+    player_groups = boxscore.get("players") or []
+    if player_groups:
+        st.markdown("#### Team box scores")
+    for index, group in enumerate(player_groups):
+        team = group.get("team") or {}
+        team_name = team.get("displayName") or team.get("abbreviation") or "Team"
+        with st.expander(f"{team_name} player statistics", expanded=(index == 0)):
+            found_rows = False
+            for stat_group in group.get("statistics") or []:
+                labels = stat_group.get("labels") or stat_group.get("keys") or []
+                player_cards = []
+                for entry in stat_group.get("athletes") or []:
+                    athlete = entry.get("athlete") or {}
+                    player_name = athlete.get("displayName") or athlete.get("fullName") or "Player"
+                    values = entry.get("stats") or []
+                    stat_items = []
+                    for idx, value in enumerate(values):
+                        label = str(labels[idx] if idx < len(labels) else f"Stat {idx + 1}")
+                        stat_items.append((label, str(value)))
+                    if stat_items:
+                        player_cards.append((player_name, stat_items))
+                if player_cards:
+                    found_rows = True
+                    group_name = stat_group.get("name") or stat_group.get("displayName")
+                    if group_name:
+                        st.caption(str(group_name).replace("_", " ").title())
+                    for player_name, stat_items in player_cards:
+                        stat_html = "".join(
+                            f'<div class="hustle-box-stat"><b>{html.escape(value)}</b><span>{html.escape(label)}</span></div>'
+                            for label, value in stat_items
+                        )
+                        st.markdown(
+                            f'<div class="hustle-box-player"><div class="hustle-box-player-name">{html.escape(player_name)}</div><div class="hustle-box-stats">{stat_html}</div></div>',
+                            unsafe_allow_html=True,
+                        )
+            if not found_rows:
+                st.info("ESPN did not include player-level box-score rows for this team.")
+
+    if not leader_cards and not player_groups:
+        st.info("ESPN returned the game summary, but did not include readable player leaders or box-score statistics for this game.")
+        game_info = summary.get("gameInfo") or {}
+        venue = game_info.get("venue") or {}
+        if venue.get("fullName"):
+            st.caption(f"Venue: {venue['fullName']}")
+        st.caption("Raw technical data is hidden to keep the matchup page clean.")
+
+
 # ---------------- Pick tracker database ----------------
 def init_db():
     """Create tracker tables and safely migrate older SQLite schemas in place.
@@ -521,9 +617,13 @@ if section == "Dashboard":
                 ids = {f"{g['Game']} • {g['Event ID']}": g["Event ID"] for g in games if g["Event ID"]}
                 if ids:
                     chosen = st.selectbox("Choose a game", list(ids))
-                    if st.button("Load game summary"):
-                        try: st.json(get_game_summary(ids[chosen]), expanded=False)
-                        except Exception as exc: st.warning(f"Game summary unavailable: {exc}")
+                    if st.button("Load game summary", use_container_width=True):
+                        try:
+                            with st.spinner("Loading game details..."):
+                                summary = get_game_summary(ids[chosen])
+                            render_game_summary(summary)
+                        except Exception as exc:
+                            st.warning(f"Game summary unavailable: {exc}")
         else:
             st.info("No NBA games are listed for this date. Try another date.")
     except Exception as exc:
@@ -557,7 +657,6 @@ elif section == "Player Research":
             if stats_obj.get("labels") and stats_obj.get("displayValues"):
                 st.markdown("#### Season snapshot")
                 st.dataframe(pd.DataFrame([stats_obj["displayValues"]], columns=stats_obj["labels"]), use_container_width=True, hide_index=True)
-            with st.expander("ESPN player overview details"): st.json(overview, expanded=False)
         except Exception as exc: st.info(f"Player overview unavailable: {exc}")
         try:
             stats = get_athlete_stats(player["id"], season)
@@ -650,9 +749,13 @@ elif section == "Matchup Research":
             st.markdown(f"### {game['Away']} at {game['Home']}")
             st.write(f"**Status:** {game['Status']}  ")
             st.write(f"**Score:** {game['Away score']} – {game['Home score']}")
-            if st.button("Load matchup / box score"):
-                try: st.json(get_game_summary(game["Event ID"]), expanded=False)
-                except Exception as exc: st.info(f"Game details unavailable: {exc}")
+            if st.button("Load matchup / box score", use_container_width=True):
+                try:
+                    with st.spinner("Loading matchup statistics..."):
+                        summary = get_game_summary(game["Event ID"])
+                    render_game_summary(summary)
+                except Exception as exc:
+                    st.info(f"Game details unavailable: {exc}")
         else: st.info("No games on today's scoreboard. Check Dashboard to select another date.")
     except Exception as exc: st.warning(f"Matchup schedule unavailable: {exc}")
 
