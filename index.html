@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07111d"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="HUSTLE AI"><meta name="description" content="Mobile-first NBA player research, prop analysis, injuries and pick tracking."><link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icons/icon-192.png"><link rel="icon" href="icons/icon-192.png"><link rel="stylesheet" href="styles.css"><title>HUSTLE AI</title>
+</head>
+<body>
+<div class="app-shell">
+<header class="topbar"><div class="brand-mark">H</div><div class="brand-copy"><strong>HUSTLE<span> AI</span></strong><small>NBA RESEARCH LAB</small></div><button id="refreshTop" class="icon-btn" aria-label="Refresh data">↻</button></header>
+<main id="view" class="view" aria-live="polite"></main>
+<nav class="tabbar" aria-label="Main navigation">
+<button data-tab="home" class="tab active"><b>⌂</b><small>Home</small></button><button data-tab="props" class="tab"><b>▤</b><small>Props</small></button><button data-tab="injuries" class="tab"><b>✚</b><small>Injuries</small></button><button data-tab="tracker" class="tab"><b>▣</b><small>My Picks</small></button><button data-tab="players" class="tab"><b>⌕</b><small>Players</small></button>
+</nav>
+</div>
+<div id="toast" class="toast" role="status"></div>
+<script src="app.js" defer></script>
+</body></html>
