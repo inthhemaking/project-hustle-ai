@@ -121,6 +121,59 @@ hr {border-color:var(--h-border)}
  .hustle-prop-game {padding:10px}
 }
 
+
+/* HUSTLE mobile-first sportsbook-inspired interface */
+:root { --h-lime:#b7f34a; --h-card:#101c2c; --h-card-edge:#2a3c53; }
+.stApp {background:linear-gradient(180deg,#0a1422 0%,#080e18 58%,#070c14 100%)}
+.block-container {max-width:1040px;padding-top:.75rem;padding-bottom:5rem}
+.hero {background:linear-gradient(115deg,#132943 0%,#102333 55%,#102a27 100%);border:1px solid #2b4b5b;border-radius:23px;padding:1.25rem 1.35rem}
+.hero-kicker {color:var(--h-lime)}
+.hero h1 {font-size:clamp(1.45rem,4vw,2.05rem);letter-spacing:.045em}
+/* pill-style workspace navigation */
+[data-testid="stRadio"] > div[role="radiogroup"] {display:flex;flex-wrap:wrap;gap:.45rem;padding:.35rem 0 .65rem}
+[data-testid="stRadio"] > div[role="radiogroup"] label {background:#111e2e;border:1px solid #2a3c53;border-radius:999px;padding:.48rem .85rem;margin:0;min-height:2.55rem;align-items:center}
+[data-testid="stRadio"] > div[role="radiogroup"] label:has(input:checked) {background:linear-gradient(120deg,#b7f34a,#8edb39);border-color:#b7f34a;color:#10180b}
+[data-testid="stRadio"] > div[role="radiogroup"] label:has(input:checked) p {color:#10180b;font-weight:850}
+[data-testid="stRadio"] > div[role="radiogroup"] label p {font-size:.82rem;font-weight:750;white-space:nowrap}
+/* high-contrast pick cards */
+.hustle-pick-card {background:linear-gradient(145deg,#14243a,#0f1927);border:1px solid #2c4058;border-radius:17px;padding:14px 15px;margin:9px 0;box-shadow:0 8px 22px rgba(0,0,0,.18)}
+.hustle-pick-top {display:flex;justify-content:space-between;align-items:center;gap:8px;color:#aebbd0;font-size:.72rem;font-weight:750;letter-spacing:.04em}
+.hustle-pick-name {font-size:1.05rem;font-weight:850;color:#f5f8fc;margin:7px 0 2px}
+.hustle-pick-market {font-size:.8rem;color:#aebbd0}
+.hustle-pick-line {display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:10px 12px;background:#0a1421;border:1px solid #263950;border-radius:12px}
+.hustle-pick-line strong {font-size:1.2rem;color:#f7f9fd}
+.hustle-pick-side {font-size:.76rem;font-weight:900;letter-spacing:.07em;color:#b7f34a}
+.hustle-status {padding:5px 9px;border-radius:999px;font-size:.67rem;font-weight:900;letter-spacing:.05em;background:#26364b;color:#dbe7f5;white-space:nowrap}
+.hustle-status-win {background:rgba(85,230,165,.15);color:#72efb4}
+.hustle-status-loss {background:rgba(255,102,117,.14);color:#ff929c}
+.hustle-status-pending {background:rgba(101,169,255,.14);color:#8fc0ff}
+.hustle-status-push,.hustle-status-void {background:rgba(244,197,106,.14);color:#f4c56a}
+.hustle-section-kicker {font-size:.68rem;letter-spacing:.15em;text-transform:uppercase;color:#b7f34a;font-weight:900;margin:1rem 0 .35rem}
+.hustle-quick-stat {background:linear-gradient(145deg,#17283d,#101a29);border:1px solid #2b4058;border-radius:15px;padding:12px 13px;min-height:78px}
+.hustle-quick-stat span {display:block;color:#aebbd0;font-size:.68rem;font-weight:750;letter-spacing:.06em;text-transform:uppercase}
+.hustle-quick-stat strong {display:block;color:#f5f8fc;font-size:1.35rem;font-weight:900;margin-top:4px}
+[data-testid="stMetric"] {background:linear-gradient(145deg,#17283d,#101a29);border-color:#2b4058}
+[data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,[data-testid="stSelectbox"] [role="combobox"] {background:#101c2c;border-color:#30465f}
+.stButton>button {border-radius:13px;font-weight:850;letter-spacing:.01em}
+@media(max-width:760px) {
+ .block-container {padding:.45rem .62rem 5.5rem}
+ .hero {padding:1rem;border-radius:17px}
+ .hero p {font-size:.82rem}
+ [data-testid="stRadio"] > div[role="radiogroup"] {flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;padding:.35rem 0 .8rem;scrollbar-width:none}
+ [data-testid="stRadio"] > div[role="radiogroup"]::-webkit-scrollbar {display:none}
+ [data-testid="stRadio"] > div[role="radiogroup"] label {flex:0 0 auto;padding:.43rem .72rem}
+ [data-testid="stRadio"] > div[role="radiogroup"] label p {font-size:.76rem}
+ [data-testid="column"] {min-width:calc(50% - .3rem) !important;flex:1 1 calc(50% - .3rem) !important}
+ [data-testid="stMetric"] {min-height:74px;padding:9px 10px}
+ [data-testid="stMetricValue"] {font-size:1.18rem}
+ .hustle-pick-card {padding:12px;border-radius:15px}
+ .hustle-pick-name {font-size:1rem}
+ .stButton>button {min-height:3.05rem}
+}
+@media(max-width:380px) {
+ [data-testid="column"] {min-width:100% !important;flex:1 1 100% !important}
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -141,9 +194,36 @@ def get_scoreboard(day: str | None = None) -> dict:
 def get_standings() -> dict:
     return fetch_json("https://site.api.espn.com/apis/v2/sports/basketball/nba/standings")
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def get_injuries() -> dict:
-    return fetch_json(f"{BASE}/injuries")
+    """Fetch ESPN's injury feed with a short five-minute cache.
+
+    Keep the actual retrieval timestamp with the cached response so the UI
+    never presents an old cached response as if it had just been fetched.
+    """
+    data = fetch_json(f"{BASE}/injuries")
+    data["_hustle_retrieved_at"] = datetime.now().astimezone().isoformat(timespec="minutes")
+    return data
+
+
+def injury_report_age(report_date: Any) -> str:
+    """Return a human-readable age for an ESPN injury report date."""
+    if not report_date:
+        return "Date not provided"
+    try:
+        parsed = pd.to_datetime(report_date, utc=True, errors="coerce")
+        if pd.isna(parsed):
+            return "Date unavailable"
+        now_utc = pd.Timestamp.now(tz="UTC")
+        hours = max(0, int((now_utc - parsed).total_seconds() // 3600))
+        if hours < 1:
+            return "Under 1 hour"
+        if hours < 24:
+            return f"{hours}h ago"
+        days = hours // 24
+        return f"{days}d ago · may be stale"
+    except Exception:
+        return "Date unavailable"
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def get_teams() -> list[dict]:
@@ -608,6 +688,18 @@ def set_pick_result(pick_id: int, result: str):
         conn.execute("UPDATE picks SET result=? WHERE id=?", (result, int(pick_id)))
         conn.commit()
 
+def delete_pick(pick_id: int):
+    """Delete exactly one saved pick after the UI confirmation step."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM picks WHERE id=?", (int(pick_id),))
+        conn.commit()
+
+def delete_parlay(parlay_id: int):
+    """Delete exactly one saved parlay after the UI confirmation step."""
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM parlays WHERE id=?", (int(parlay_id),))
+        conn.commit()
+
 def save_parlay(name: str, legs: list[dict]):
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("INSERT INTO parlays(name,legs_json) VALUES(?,?)", (name, json.dumps(legs)))
@@ -626,8 +718,7 @@ def set_parlay_result(parlay_id: int, result: str):
 # ---------------- Main interface ----------------
 st.markdown('<div class="hero"><div class="hero-kicker">NBA ANALYTICS · BUILT TO COMPETE</div><h1>PROJECT HUSTLE AI</h1><p>Research the numbers. Read the matchup. Make your data-driven decisions.</p></div>', unsafe_allow_html=True)
 sections = ["Dashboard", "Player Research", "Injury Center", "Prop Analyzer", "Matchup Research", "Pick Tracker & Parlays"]
-section = st.selectbox("Where do you want to go?", sections, key="main_navigation", help="Choose a workspace. On phones, this menu is easier to use than a row of tabs.")
-st.markdown('<div class="hustle-nav-label">YOUR WORKSPACE</div>', unsafe_allow_html=True)
+section = st.radio("YOUR WORKSPACE", sections, horizontal=True, key="main_navigation", label_visibility="collapsed")
 
 if section == "Dashboard":
     st.subheader("NBA scoreboard")
@@ -711,8 +802,12 @@ elif section == "Player Research":
 
 elif section == "Injury Center":
     st.subheader("NBA injury center")
-    st.caption("Public ESPN injury information can be incomplete or delayed. No statuses are inferred.")
-    if st.button("Refresh injury feed"): get_injuries.clear()
+    st.caption("Live ESPN injury feed with a five-minute cache. Always check the report age before relying on a status.")
+    refresh_col, info_col = st.columns([1, 2])
+    with refresh_col:
+        if st.button("↻ Refresh injuries now", use_container_width=True):
+            get_injuries.clear()
+            st.rerun()
     try:
         data = get_injuries(); rows = []
         groups = data.get("injuries", [])
@@ -720,14 +815,35 @@ elif section == "Injury Center":
             team = group.get("team", {})
             for injury in group.get("injuries", []):
                 athlete = injury.get("athlete", {})
-                rows.append({"Player": athlete.get("displayName", "Unknown"), "Team": team.get("displayName") or team.get("abbreviation", "Unknown"), "Status": injury.get("status", "Not specified"), "Injury": (injury.get("type") or {}).get("name", "Not specified"), "Details": injury.get("details", ""), "Report date": injury.get("date", "")})
-        if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-        else: st.info("No injury entries were present in ESPN's current response.")
-        st.caption(f"Source: ESPN public injury endpoint • Retrieved {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+                report_date = injury.get("date", "")
+                rows.append({
+                    "Player": athlete.get("displayName", "Unknown"),
+                    "Team": team.get("displayName") or team.get("abbreviation", "Unknown"),
+                    "Status": injury.get("status", "Not specified"),
+                    "Injury": (injury.get("type") or {}).get("name", "Not specified"),
+                    "Details": injury.get("details", ""),
+                    "Report date": report_date or "Not provided",
+                    "Report age": injury_report_age(report_date),
+                })
+        retrieved = data.get("_hustle_retrieved_at", "Unavailable")
+        if rows:
+            frame = pd.DataFrame(rows)
+            if "Report date" in frame:
+                frame = frame.sort_values("Report date", ascending=False, na_position="last")
+            stale_count = sum("may be stale" in str(value) for value in frame["Report age"])
+            st.metric("Players listed", len(frame))
+            if stale_count:
+                st.warning(f"{stale_count} report(s) are older than 24 hours. Treat those statuses as potentially outdated and verify before using them.")
+            st.dataframe(frame, use_container_width=True, hide_index=True)
+        else:
+            st.info("ESPN returned no injury entries in its latest response. That does not necessarily mean every player is healthy.")
+        st.caption(f"Source: ESPN public injury endpoint • Feed fetched: {retrieved} • Auto-refresh cache: 5 minutes")
+        st.caption("Important: ESPN may publish delayed or incomplete reports. The report age is shown so older statuses are not mistaken for breaking updates.")
     except Exception as exc: st.error(f"Injury feed unavailable: {exc}")
 
 elif section == "Prop Analyzer":
     st.subheader("Prop Lab")
+    st.markdown('<div class="hustle-section-kicker">Build a pick · Check the numbers · Track the result</div>', unsafe_allow_html=True)
     st.caption("Build a player prop analysis from actual ESPN game logs. Enter the line shown by your sportsbook.")
     player = player_picker("prop")
     if player:
@@ -833,38 +949,136 @@ elif section == "Pick Tracker & Parlays":
     if picks.empty:
         st.info("No saved picks yet. Analyze a player prop and select Save pick to tracker.")
     else:
-        wins = int((picks["result"] == "Win").sum()); losses = int((picks["result"] == "Loss").sum()); pending = int((picks["result"] == "Pending").sum())
-        a,b,c,d = st.columns(4); a.metric("Saved picks", len(picks)); b.metric("Wins", wins); c.metric("Losses", losses); d.metric("Pending", pending)
-        st.dataframe(picks, use_container_width=True, hide_index=True)
-        pending_rows = picks[picks["result"] == "Pending"]
-        if not pending_rows.empty:
-            st.markdown("#### Settle a pick")
-            chosen = st.selectbox("Pick", pending_rows["id"].tolist(), format_func=lambda x: f"#{x} — {pending_rows.loc[pending_rows.id.eq(x), 'player'].iloc[0]} {pending_rows.loc[pending_rows.id.eq(x), 'market'].iloc[0]}")
-            result = st.selectbox("Result", ["Win", "Loss", "Push", "Void"])
-            if st.button("Save pick result"):
-                set_pick_result(chosen, result); st.success("Pick result updated."); st.rerun()
+        picks["result"] = picks["result"].fillna("Pending")
+        wins = int((picks["result"] == "Win").sum())
+        losses = int((picks["result"] == "Loss").sum())
+        pushes = int((picks["result"] == "Push").sum())
+        voids = int((picks["result"] == "Void").sum())
+        pending = int((picks["result"] == "Pending").sum())
+        settled = wins + losses
+        win_rate = (wins / settled * 100) if settled else 0
+        a, b, c, d, e = st.columns(5)
+        a.metric("Saved picks", len(picks))
+        b.metric("Wins", wins)
+        c.metric("Losses", losses)
+        d.metric("Win rate", f"{win_rate:.1f}%")
+        e.metric("Pending", pending)
+        st.caption(f"Also tracked: {pushes} pushes · {voids} voids. Win rate excludes pending, push, and void results.")
+
+        st.markdown("#### Your picks")
+        status_options = ["All", "Pending", "Win", "Loss", "Push", "Void"]
+        filter_status = st.selectbox("Filter by result", status_options, key="pick_filter_status")
+        shown_picks = picks if filter_status == "All" else picks[picks["result"] == filter_status]
+        if shown_picks.empty:
+            st.caption("No picks match this filter.")
+        else:
+            for _, pick in shown_picks.iterrows():
+                status = str(pick.get("result", "Pending") or "Pending")
+                status_class = "hustle-status-" + status.lower()
+                market_label = html.escape(str(pick.get("market", "Prop")))
+                player_label = html.escape(str(pick.get("player", "Player")))
+                side_label = html.escape(str(pick.get("side", ""))).upper()
+                opponent_label = html.escape(str(pick.get("opponent", "") or ""))
+                opponent_html = f"<span>vs {opponent_label}</span>" if opponent_label else ""
+                st.markdown(
+                    f'<div class="hustle-pick-card"><div class="hustle-pick-top"><span>HUSTLE PICK #{int(pick["id"])}</span><span class="hustle-status {status_class}">{html.escape(status.upper())}</span></div><div class="hustle-pick-name">{player_label}</div><div class="hustle-pick-market">{market_label} {opponent_html}</div><div class="hustle-pick-line"><strong>{float(pick.get("line", 0)):g}</strong><span class="hustle-pick-side">{side_label}</span></div></div>',
+                    unsafe_allow_html=True,
+                )
+
+        st.markdown("#### Update a pick result")
+        pick_ids = picks["id"].astype(int).tolist()
+        chosen = st.selectbox(
+            "Pick to update",
+            pick_ids,
+            format_func=lambda x: f"#{x} — {picks.loc[picks.id.eq(x), 'player'].iloc[0]} · {picks.loc[picks.id.eq(x), 'market'].iloc[0]} ({picks.loc[picks.id.eq(x), 'result'].iloc[0]})",
+            key="update_pick_id",
+        )
+        current_result = str(picks.loc[picks.id.eq(chosen), "result"].iloc[0])
+        result_options = ["Pending", "Win", "Loss", "Push", "Void"]
+        result_index = result_options.index(current_result) if current_result in result_options else 0
+        result = st.selectbox("New result", result_options, index=result_index, key="update_pick_result")
+        if st.button("Save pick result", use_container_width=True):
+            set_pick_result(chosen, result)
+            st.success("Pick result updated.")
+            st.rerun()
+
+        st.markdown("#### Delete a pick")
+        delete_id = st.selectbox(
+            "Choose the pick to remove",
+            pick_ids,
+            format_func=lambda x: f"#{x} — {picks.loc[picks.id.eq(x), 'player'].iloc[0]} · {picks.loc[picks.id.eq(x), 'market'].iloc[0]} · {picks.loc[picks.id.eq(x), 'side'].iloc[0]} {picks.loc[picks.id.eq(x), 'line']}",
+            key="delete_pick_id",
+        )
+        delete_row = picks.loc[picks.id.eq(delete_id)].iloc[0]
+        st.caption(f"Selected: {delete_row['player']} · {delete_row['market']} · {delete_row['side']} {delete_row['line']}")
+        if st.button("Delete selected pick", type="secondary", use_container_width=True, key="start_delete_pick"):
+            st.session_state["confirm_delete_pick_id"] = int(delete_id)
+        if st.session_state.get("confirm_delete_pick_id") is not None:
+            confirm_id = int(st.session_state["confirm_delete_pick_id"])
+            st.warning(f"Are you sure you want to permanently delete pick #{confirm_id}? This cannot be undone.")
+            confirm_col, cancel_col = st.columns(2)
+            if confirm_col.button("Yes, delete pick", type="primary", use_container_width=True, key="confirm_delete_pick"):
+                delete_pick(confirm_id)
+                st.session_state.pop("confirm_delete_pick_id", None)
+                st.success("Pick deleted.")
+                st.rerun()
+            if cancel_col.button("Cancel", use_container_width=True, key="cancel_delete_pick"):
+                st.session_state.pop("confirm_delete_pick_id", None)
+                st.rerun()
+
         st.markdown("#### Build a parlay")
         pending_rows = picks[picks["result"] == "Pending"]
         if len(pending_rows) >= 2:
-            chosen_ids = st.multiselect("Select parlay legs", pending_rows["id"].tolist(), format_func=lambda x: f"#{x} {pending_rows.loc[pending_rows.id.eq(x), 'player'].iloc[0]} — {pending_rows.loc[pending_rows.id.eq(x), 'market'].iloc[0]}")
+            chosen_ids = st.multiselect(
+                "Select parlay legs",
+                pending_rows["id"].tolist(),
+                format_func=lambda x: f"#{x} {pending_rows.loc[pending_rows.id.eq(x), 'player'].iloc[0]} — {pending_rows.loc[pending_rows.id.eq(x), 'market'].iloc[0]}",
+                key="parlay_legs",
+            )
             if chosen_ids:
-                parlay_name = st.text_input("Parlay name", value=f"HUSTLE slip {datetime.now().strftime('%m/%d')}")
-                if st.button("Save parlay"):
+                parlay_name = st.text_input("Parlay name", value=f"HUSTLE slip {datetime.now().strftime('%m/%d')}", key="parlay_name")
+                if st.button("Save parlay", use_container_width=True):
                     legs = pending_rows[pending_rows["id"].isin(chosen_ids)][["id", "player", "market", "line", "side"]].to_dict("records")
-                    save_parlay(parlay_name.strip() or "My parlay", legs); st.success("Parlay saved."); st.rerun()
+                    save_parlay(parlay_name.strip() or "My parlay", legs)
+                    st.success("Parlay saved.")
+                    st.rerun()
         else:
             st.caption("Save at least two pending picks to build a parlay.")
+
     parlays = load_parlays()
     if not parlays.empty:
         st.markdown("#### Saved parlays")
-        view = parlays.copy(); view["Legs"] = view["legs_json"].apply(lambda x: len(json.loads(x)) if x else 0)
+        view = parlays.copy()
+        view["Legs"] = view["legs_json"].apply(lambda x: len(json.loads(x)) if x else 0)
         st.dataframe(view[["id", "created_at", "name", "Legs", "result"]], use_container_width=True, hide_index=True)
-        pending_parlays = parlays[parlays["result"] == "Pending"]
+        pending_parlays = parlays[parlays["result"].fillna("Pending") == "Pending"]
         if not pending_parlays.empty:
             pid = st.selectbox("Parlay to settle", pending_parlays["id"].tolist(), format_func=lambda x: f"#{x} — {pending_parlays.loc[pending_parlays.id.eq(x), 'name'].iloc[0]}")
             result = st.selectbox("Parlay result", ["Win", "Loss", "Push", "Void"], key="parlay_result")
-            if st.button("Save parlay result"):
-                set_parlay_result(pid, result); st.success("Parlay result updated."); st.rerun()
+            if st.button("Save parlay result", use_container_width=True):
+                set_parlay_result(pid, result)
+                st.success("Parlay result updated.")
+                st.rerun()
+        st.markdown("#### Delete a parlay")
+        parlay_ids = parlays["id"].astype(int).tolist()
+        delete_parlay_id = st.selectbox("Choose a parlay to remove", parlay_ids, format_func=lambda x: f"#{x} — {parlays.loc[parlays.id.eq(x), 'name'].iloc[0]}", key="delete_parlay_id")
+        if st.button("Delete selected parlay", use_container_width=True, key="start_delete_parlay"):
+            st.session_state["confirm_delete_parlay_id"] = int(delete_parlay_id)
+        if st.session_state.get("confirm_delete_parlay_id") is not None:
+            confirm_parlay_id = int(st.session_state["confirm_delete_parlay_id"])
+            st.warning(f"Are you sure you want to permanently delete parlay #{confirm_parlay_id}?")
+            yes_col, no_col = st.columns(2)
+            if yes_col.button("Yes, delete parlay", type="primary", use_container_width=True, key="confirm_delete_parlay"):
+                delete_parlay(confirm_parlay_id)
+                st.session_state.pop("confirm_delete_parlay_id", None)
+                st.success("Parlay deleted.")
+                st.rerun()
+            if no_col.button("Cancel", use_container_width=True, key="cancel_delete_parlay"):
+                st.session_state.pop("confirm_delete_parlay_id", None)
+                st.rerun()
+    else:
+        st.caption("No parlays saved yet.")
+
     st.warning("Important: SQLite on Streamlit Community Cloud is local storage and may reset after restarts or redeployments. Use this tracker as a prototype until we add a free persistent database.")
 
 st.divider()
