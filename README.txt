@@ -1,23 +1,38 @@
-HUSTLE AI — INSTALLABLE IPHONE WEB APP (PWA)
+HUSTLE AI — CLOUDFLARE PROXY CONNECTED UPDATE
 
-WHAT THIS IS
-This is a separate, mobile-first installable web app. It is not an App Store native app. On iPhone, open its HTTPS address in Safari, tap Share, then Add to Home Screen. It launches in a standalone app-style window.
+WHAT CHANGED
+- All ESPN requests now use your deployed Cloudflare Worker:
+  https://hustle-ai-espn-proxy.workmanquintavius.workers.dev
+- Player Research and Prop Analyzer share one more tolerant ESPN player-result parser.
+- Prop player search has a short debounce, loading feedback, and visible errors.
+- Game-log requests use the NBA season end year (e.g. 2027 during Nov 2026).
+- Request timeouts and clearer proxy/API errors were added.
+- Service worker cache was bumped so the new JavaScript can replace the older cached version.
 
-FILES
-index.html, styles.css, app.js, manifest.webmanifest, sw.js, icons/
+PUBLISH THE UPDATE
+1. Open your GitHub repository: https://github.com/inthhemaking/project-hustle-ai
+2. Upload/replace the files in this package at the repository root:
+   index.html, app.js, styles.css, sw.js, manifest.webmanifest, and the icons/ folder.
+3. Do NOT replace app.py or requirements.txt.
+4. Commit the changes to the main branch.
+5. Wait for GitHub Pages to publish the update.
+6. On your iPhone, open the app in Safari and refresh it. If it still shows the old version, close the installed HUSTLE AI app completely, open the GitHub Pages URL in Safari, refresh, then Add to Home Screen/open again if needed.
 
-PUBLISH WITH GITHUB PAGES
-1. Open https://github.com/inthhemaking/project-hustle-ai
-2. Add the files and icons folder from this package to the repository root. Do NOT replace app.py or requirements.txt; those are the existing Streamlit project and remain separate.
-3. Commit the files.
-4. In GitHub, open Settings → Pages.
-5. Under Build and deployment, choose Deploy from a branch; choose main and /(root), then Save.
-6. Wait for GitHub Pages to publish. The expected address is https://inthhemaking.github.io/project-hustle-ai/ .
-7. On the iPhone, open that address in Safari (not an in-app browser), tap Share → Add to Home Screen → Add.
+PROXY STATUS
+The Worker was confirmed by the user to return ESPN NBA team JSON from:
+https://hustle-ai-espn-proxy.workmanquintavius.workers.dev/site/sports/basketball/nba/teams
 
-IMPORTANT LIMITATIONS IN THIS FIRST PWA BUILD
-- ESPN data is requested directly from the iPhone browser. If ESPN blocks cross-origin browser requests or changes its public response format, a small hosted API proxy will be needed. The browser request has not been verified on a real iPhone in this environment.
-- The pick tracker is stored locally on the iPhone/browser. It does not sync across devices and may be lost if Safari website data is cleared. Add a persistent backend before relying on it for long-term records.
-- The app shell can open offline after it has been loaded once; live ESPN data requires internet.
-- Injury records are normalized into readable cards. The age label is calculated from ESPN's report date when present; missing dates are explicitly shown as not supplied. Reports older than 24 hours are separated for verification. A fresh fetch does not guarantee ESPN has published a fresh report.
-- This package is a PWA front-end, not a replacement for the existing Streamlit backend. Keep the old Streamlit app until the PWA data calls and workflows are verified.
+PLAYER SEARCH TESTS AFTER PUBLISH
+Search for:
+- LeBron James
+- Stephen Curry
+- Nikola Jokic
+
+Then select each result. Confirm the game log loads. Prop Analyzer should use the same search and selected player.
+
+IMPORTANT
+- The Cloudflare Worker is already deployed separately. Do not paste the PWA JavaScript into Cloudflare.
+- This package does not change the Cloudflare Worker code.
+- ESPN's public endpoints and response shapes can change. The team endpoint success confirms the proxy route works for that endpoint, but player search and game logs still require live end-to-end testing after publishing.
+- Picks and parlays remain local to this iPhone/browser and are not cloud-synced.
+- Keep the old Streamlit app until the PWA is tested successfully.
