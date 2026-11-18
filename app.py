@@ -22,69 +22,67 @@ st.set_page_config(page_title="Project HUSTLE AI", page_icon="🏀", layout="wid
 st.markdown("""
 <style>
 :root {
-  --hustle-bg: #080d16;
-  --hustle-panel: #111c2b;
-  --hustle-panel-2: #17263a;
-  --hustle-border: #2a3b53;
-  --hustle-text: #f3f6fb;
-  --hustle-muted: #b7c4d6;
-  --hustle-accent: #6ea8ff;
+  --h-bg:#080e18; --h-panel:#111c2b; --h-panel2:#172438;
+  --h-border:#263952; --h-text:#f4f7fc; --h-muted:#aebbd0;
+  --h-green:#55e6a5; --h-blue:#65a9ff;
 }
-.stApp { background:var(--hustle-bg); color:var(--hustle-text); }
-.block-container { padding:1.15rem 1.35rem 3rem; max-width:1320px; }
-.hero {
-  padding:1.45rem 1.55rem; border:1px solid var(--hustle-border);
-  border-radius:20px; background:linear-gradient(120deg,#172d49 0%,#101a2a 72%);
-  margin:0 0 1.15rem; box-shadow:0 10px 28px rgba(0,0,0,.18);
+.stApp {background:radial-gradient(ellipse at 50% -15%,#1a3150 0%,#0b1422 42%,var(--h-bg) 78%);color:var(--h-text)}
+.block-container {max-width:1180px;padding:1rem 1.1rem 3.5rem}
+header[data-testid="stHeader"] {background:rgba(8,14,24,.88)}
+.hero {position:relative;overflow:hidden;padding:1.45rem 1.5rem;border:1px solid #294363;border-radius:22px;background:linear-gradient(115deg,#142b45 0%,#101b2c 58%,#102b2b 100%);margin:0 0 1rem;box-shadow:0 16px 42px rgba(0,0,0,.25)}
+.hero:after {content:"";position:absolute;width:190px;height:190px;right:-65px;top:-85px;border:28px solid rgba(85,230,165,.10);border-radius:50%}
+.hero h1 {letter-spacing:.07em;margin:0;font-size:2rem;line-height:1.15;font-weight:850;color:#f6f9ff}
+.hero p {color:#c1d0e2;margin:.55rem 0 0;font-size:.98rem}
+.hero-kicker {font-size:.68rem;letter-spacing:.19em;font-weight:800;color:var(--h-green);margin-bottom:.45rem}
+h1,h2,h3 {letter-spacing:-.025em;color:var(--h-text)}
+h2 {margin-top:.4rem;font-size:1.5rem}
+h3 {font-size:1.15rem}
+p, label, .stMarkdown {color:var(--h-text)}
+[data-testid="stCaptionContainer"],.caption {color:var(--h-muted)}
+[data-testid="stMetric"] {background:linear-gradient(145deg,#152338,#101a29);border:1px solid var(--h-border);padding:15px 16px;border-radius:17px;min-height:94px;box-shadow:0 8px 22px rgba(0,0,0,.13)}
+[data-testid="stMetricLabel"] {color:var(--h-muted);font-size:.82rem;font-weight:650}
+[data-testid="stMetricValue"] {color:var(--h-text);font-size:1.65rem;font-weight:750}
+[data-testid="stTextInput"] input,[data-testid="stNumberInput"] input,[data-testid="stSelectbox"] [role="combobox"],[data-testid="stDateInput"] input {min-height:3rem;border-radius:12px;background:#111d2d;border:1px solid #30445f;color:#f4f7fc}
+[data-testid="stTextInput"] label,[data-testid="stNumberInput"] label,[data-testid="stSelectbox"] label,[data-testid="stRadio"] label,[data-testid="stDateInput"] label {color:#dce6f3;font-weight:650}
+.stButton>button,[data-testid="stDownloadButton"] button {border-radius:13px;min-height:3rem;font-weight:750;border:1px solid #39785f;background:linear-gradient(110deg,#1b805c,#176b55);color:white;box-shadow:0 7px 18px rgba(22,130,91,.16);transition:transform .15s ease,filter .15s ease}
+.stButton>button:hover,[data-testid="stDownloadButton"] button:hover {filter:brightness(1.12);transform:translateY(-1px)}
+[data-testid="stAlert"],[data-testid="stExpander"] {border-radius:14px}
+[data-testid="stExpander"] {border:1px solid var(--h-border);background:rgba(17,28,43,.72)}
+hr {border-color:var(--h-border)}
+[data-testid="stDataFrame"],[data-testid="stTable"] {border:1px solid var(--h-border);border-radius:14px;overflow:hidden}
+.hustle-game {background:linear-gradient(145deg,#142238,#101a29);border:1px solid #2b405c;border-radius:16px;padding:13px 14px;margin:.45rem 0;box-shadow:0 7px 18px rgba(0,0,0,.13)}
+.hustle-game-top {display:flex;justify-content:space-between;gap:10px;color:#aebbd0;font-size:.78rem;margin-bottom:9px}
+.hustle-game-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+.hustle-stat {background:#0c1522;border-radius:10px;padding:9px 7px;text-align:center;min-width:0}
+.hustle-stat strong {display:block;color:#f4f7fc;font-size:1.08rem;line-height:1.2}
+.hustle-stat span {display:block;color:#9eacc1;font-size:.65rem;letter-spacing:.07em;margin-top:4px}
+.hustle-result {font-weight:800;color:var(--h-green)}
+.hustle-nav-label {color:#55e6a5;font-size:.72rem;font-weight:800;letter-spacing:.14em;margin:.35rem 0}
+@media(max-width:760px) {
+ .block-container {padding:.55rem .65rem 2.3rem}
+ .hero {padding:1.05rem 1rem;border-radius:17px;margin-bottom:.8rem}
+ .hero h1 {font-size:1.48rem;letter-spacing:.045em}
+ .hero p {font-size:.86rem;line-height:1.4;max-width:95%}
+ h2 {font-size:1.28rem !important} h3 {font-size:1.05rem !important}
+ [data-testid="stHorizontalBlock"] {flex-wrap:wrap;gap:.5rem}
+ [data-testid="column"] {min-width:calc(50% - .3rem) !important;flex:1 1 calc(50% - .3rem) !important}
+ [data-testid="stMetric"] {min-height:82px;padding:10px 11px;border-radius:14px}
+ [data-testid="stMetricLabel"] {font-size:.72rem}
+ [data-testid="stMetricValue"] {font-size:1.25rem}
+ .stButton>button,[data-testid="stDownloadButton"] button {width:100%;min-height:3.05rem}
+ [data-testid="stDataFrame"] {max-width:100%;overflow-x:auto}
+ [data-testid="stDataFrame"] iframe {max-width:100%}
+ [data-testid="stSelectbox"],[data-testid="stTextInput"],[data-testid="stNumberInput"],[data-testid="stDateInput"] {width:100%}
+ [data-testid="stRadio"]>div {flex-wrap:wrap;gap:.4rem}
+ .hustle-game {padding:11px;border-radius:14px}
+ .hustle-game-grid {grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}
+ .hustle-stat {padding:8px 3px}
+ .hustle-stat strong {font-size:1rem}
+ .hustle-stat span {font-size:.58rem;letter-spacing:.03em}
 }
-.hero h1 { letter-spacing:.055em; margin:0; font-size:2.05rem; line-height:1.15; }
-.hero p { color:#c1cee0; margin:.5rem 0 0; font-size:1rem; }
-h1,h2,h3 { letter-spacing:-.02em; }
-h2 { margin-top:.5rem; }
-[data-testid="stMetric"] {
-  background:var(--hustle-panel); border:1px solid var(--hustle-border);
-  padding:14px 15px; border-radius:15px; min-height:104px;
-}
-[data-testid="stMetricLabel"] { color:var(--hustle-muted); font-size:.88rem; }
-[data-testid="stMetricValue"] { color:var(--hustle-text); font-size:1.65rem; }
-[data-testid="stDataFrame"], [data-testid="stTable"] {
-  border:1px solid var(--hustle-border); border-radius:13px; overflow:hidden;
-}
-[data-testid="stDataFrame"] { width:100%; }
-[data-testid="stTextInput"] input, [data-testid="stNumberInput"] input,
-[data-testid="stSelectbox"] [role="combobox"], [data-testid="stDateInput"] input {
-  min-height:2.9rem; border-radius:11px;
-}
-[data-testid="stTextInput"] label, [data-testid="stNumberInput"] label,
-[data-testid="stSelectbox"] label, [data-testid="stRadio"] label,
-[data-testid="stDateInput"] label { color:#d8e2ef; font-weight:600; }
-.stButton > button, [data-testid="stDownloadButton"] button {
-  border-radius:11px; min-height:2.85rem; font-weight:650;
-  border:1px solid #42618a; transition:filter .15s ease, transform .15s ease;
-}
-.stButton > button:hover, [data-testid="stDownloadButton"] button:hover { filter:brightness(1.12); }
-[data-testid="stAlert"] { border-radius:12px; }
-[data-testid="stExpander"] { border:1px solid var(--hustle-border); border-radius:12px; }
-hr { border-color:var(--hustle-border); }
-.caption, [data-testid="stCaptionContainer"] { color:var(--hustle-muted); }
-/* Make Streamlit's multi-column metric and form rows wrap cleanly on phones. */
-@media (max-width: 760px) {
-  .block-container { padding:.65rem .7rem 2.2rem; }
-  .hero { padding:1.05rem 1rem; border-radius:15px; margin-bottom:.85rem; }
-  .hero h1 { font-size:1.48rem; }
-  .hero p { font-size:.9rem; line-height:1.4; }
-  h2 { font-size:1.35rem !important; }
-  h3 { font-size:1.12rem !important; }
-  [data-testid="stHorizontalBlock"] { flex-wrap:wrap; gap:.55rem; }
-  [data-testid="column"] { min-width:100% !important; flex:1 1 100% !important; }
-  [data-testid="stMetric"] { min-height:0; padding:11px 12px; }
-  [data-testid="stMetricValue"] { font-size:1.4rem; }
-  .stButton > button, [data-testid="stDownloadButton"] button { width:100%; }
-  [data-testid="stDataFrame"] { max-width:100%; overflow-x:auto; }
-  [data-testid="stDataFrame"] iframe { max-width:100%; }
-  [data-testid="stSelectbox"], [data-testid="stTextInput"],
-  [data-testid="stNumberInput"], [data-testid="stDateInput"] { width:100%; }
-  [data-testid="stRadio"] > div { flex-wrap:wrap; gap:.35rem; }
+@media(max-width:390px) {
+ [data-testid="column"] {min-width:100% !important;flex:1 1 100% !important}
+ .hustle-game-grid {grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -384,6 +382,27 @@ def show_recent_averages(log: pd.DataFrame):
         vals = log[field].dropna() if field in log else pd.Series(dtype=float)
         col.metric(f"{label} L5 / L10 / L20", " / ".join(f"{vals.head(n).mean():.1f}" if len(vals.head(n)) else "—" for n in (5, 10, 20)))
 
+def render_game_cards(log: pd.DataFrame, limit: int = 20):
+    """Render compact game cards instead of a wide, clipped table on phones."""
+    if log.empty:
+        st.info("No game rows are available for this player and season.")
+        return
+    fields = [("PTS", "points"), ("REB", "rebounds"), ("AST", "assists"), ("MIN", "minutes")]
+    for _, row in log.head(limit).iterrows():
+        dt = row.get("Date")
+        date_label = dt.strftime("%b %d, %Y") if pd.notna(dt) else "Date unavailable"
+        opponent = str(row.get("Opponent") or "Opponent unavailable")
+        result = str(row.get("Result") or "")
+        cells = []
+        for label, field in fields:
+            value = row.get(field)
+            display = f"{value:.0f}" if pd.notna(value) and field == "minutes" else (f"{value:.1f}" if pd.notna(value) else "—")
+            cells.append(f'<div class="hustle-stat"><strong>{display}</strong><span>{label}</span></div>')
+        st.markdown(
+            f'<div class="hustle-game"><div class="hustle-game-top"><span>{date_label} · {opponent}</span><span class="hustle-result">{result}</span></div><div class="hustle-game-grid">{"".join(cells)}</div></div>',
+            unsafe_allow_html=True,
+        )
+
 def player_picker(key: str):
     query = st.text_input("Search NBA player", placeholder="Try LeBron James or Stephen Curry", key=f"player_query_{key}")
     if len(query.strip()) < 3:
@@ -481,10 +500,10 @@ def set_parlay_result(parlay_id: int, result: str):
         conn.commit()
 
 # ---------------- Main interface ----------------
-st.markdown('<div class="hero"><h1>PROJECT HUSTLE AI</h1><p>Research the numbers. Understand the matchup. Track your process.</p></div>', unsafe_allow_html=True)
+st.markdown('<div class="hero"><div class="hero-kicker">NBA ANALYTICS · BUILT TO COMPETE</div><h1>PROJECT HUSTLE AI</h1><p>Research the numbers. Read the matchup. Make your data-driven decisions.</p></div>', unsafe_allow_html=True)
 sections = ["Dashboard", "Player Research", "Injury Center", "Prop Analyzer", "Matchup Research", "Pick Tracker & Parlays"]
 section = st.selectbox("Where do you want to go?", sections, key="main_navigation", help="Choose a workspace. On phones, this menu is easier to use than a row of tabs.")
-st.caption("NBA analytics workspace  ·  Free ESPN data  ·  No paid API key  ·  Data availability can vary")
+st.markdown('<div class="hustle-nav-label">YOUR WORKSPACE</div>', unsafe_allow_html=True)
 
 if section == "Dashboard":
     st.subheader("NBA scoreboard")
@@ -558,7 +577,7 @@ elif section == "Player Research":
             if not log.empty:
                 st.markdown("#### Recent game logs")
                 show_recent_averages(log)
-                st.dataframe(log.head(20), use_container_width=True, hide_index=True)
+                render_game_cards(log.head(20))
             else:
                 st.warning("ESPN did not return recognizable game rows for this season. Try a previous season or check back later.")
         except Exception as exc: st.warning(f"Game logs unavailable: {exc}")
